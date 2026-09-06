@@ -21,9 +21,10 @@ bun run src/cli.ts --help
 ## Usage
 
 ```sh
-websearch <query> [options]
+websearch [query] [options]
 
 Options:
+  -q, --query <q>                      search query; repeat to run several queries in sequence
   -n, --num-results <n>                number of results per provider (default: 5, max 20)
       --recency <day|week|month|year>  recency filter
       --domain <d>...                  restrict/exclude domains; prefix "-" to exclude
@@ -38,11 +39,18 @@ Examples:
 
 ```sh
 websearch "bun javascript runtime"
+websearch -q "bun runtime benchmarks" -q "bun vs node performance"
 websearch "exa docs" -n 3 --json
 websearch "tailscale" --domain tailscale.com          # restrict to one site
 websearch "rust vs go" --domain github.com --domain -reddit.com
 websearch "gossip protocols" --json | jq '.exa.response.answer'
 ```
+
+### Multiple queries
+
+Repeat `-q/--query` to run several queries in one call (a positional query runs first). Each query runs sequentially — all three providers still fan out in parallel within a query — and one query failing never blocks the rest. With multiple queries, text output groups each query under a `## Query: "<query>"` header and merges/dedupes all sources into a single footer list; `--json` emits an array of `{ query, exa, parallel, tavily }` objects instead of the single-query object.
+
+For research, prefer 2–4 varied angles over near-duplicate phrasings — each query gets its own per-provider answers, so varying phrasing, scope, and angle gives much broader coverage. Good: `["react vs vue performance benchmarks 2026", "react vs vue developer experience comparison"]`. Bad: `["react vs vue", "react vs vue comparison"]` (too similar, redundant results).
 
 Exit codes: `0` success, `1` runtime/search failure, `2` usage error.
 

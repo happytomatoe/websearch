@@ -1,15 +1,16 @@
 import { searchWithExa } from "./exa.ts";
 import { searchWithParallel } from "./parallel.ts";
 import { searchWithTavily } from "./tavily.ts";
-import { renderCli, type CliOptions, type CliResult, type ProviderEntry } from "./render.ts";
+import { renderCli, type CliOptions, type CliResult, type ProviderEntry, type QueryResult } from "./render.ts";
 import type { SearchOptions, SearchResponse } from "./types.ts";
 import skillDoc from "./skill.md" with { type: "text" };
 
-const USAGE = `usage: websearch <query> [options]
+const USAGE = `usage: websearch [query] [options]
 
 Searches the web via the keyless Exa, Parallel, and Tavily MCP servers (all three, in parallel).
 
 Options:
+  -q, --query <q>                      search query; repeat to run several queries in sequence
   -n, --num-results <n>                number of results per provider (default: 5)
       --recency <day|week|month|year>  recency filter
       --domain <d>...                  restrict/exclude domains; prefix "-" to exclude
@@ -17,14 +18,18 @@ Options:
       --json                           emit JSON instead of human-readable text
   -h, --help                           show this help
 
+A positional query runs first, followed by -q/--query values in order. With multiple
+queries, output groups each query under a '## Query' header with one merged source list.
+
 Examples:
   websearch "bun javascript runtime"
+  websearch -q "bun runtime benchmarks" -q "bun vs node performance"
   websearch "exa docs" -n 3 --json
   websearch "tailscale" --domain tailscale.com
 `;
 
 interface Parsed {
-	query: string;
+	queries: string[];
 	options: CliOptions;
 }
 
@@ -44,6 +49,7 @@ function parseArgs(argv: string[]): Parsed {
 	let json = false;
 
 	const queryParts: string[] = [];
+	const flagQueries: string[] = [];
 
 	let i = 0;
 	while (i < argv.length) {
@@ -53,6 +59,20 @@ function parseArgs(argv: string[]): Parsed {
 		}
 		if (arg === "-h" || arg === "--help") {
 			throw new EarlyExitError(USAGE, 0);
+		}
+		if (arg === "-q" || arg === "--query") {
+			const value = argv[i + 1];
+			if (!value || value.startsWith("-")) throw new UsageError(`--query requires a value`);
+			flagQueries.push(value);
+			i += 2;
+			continue;
+		}
+		if (arg.startsWith("--query=")) {
+			const value = arg.slice("--query=".length);
+			if (!value) throw new UsageError(`--query requires a value`);
+			flagQueries.push(value);
+			i++;
+			continue;
 		}
 		if (arg === "-n" || arg === "--num-results") {
 			const n = Number(argv[i + 1]);
@@ -125,10 +145,12 @@ function parseArgs(argv: string[]): Parsed {
 		i++;
 	}
 
-	const query = queryParts.join(" ");
-	if (!query.trim()) throw new UsageError("missing query argument");
+	const positional = queryParts.join(" ").trim();
+	const flagValues = flagQueries.map(q => q.trim()).filter(Boolean);
+	const queries = positional ? [positional, ...flagValues] : flagValues;
+	if (queries.length === 0) throw new UsageError("missing query argument");
 
-	return { query, options: { numResults, recency, domains, includeContent, json } };
+	return { queries, options: { numResults, recency, domains, includeContent, json } };
 }
 function buildOptions(parsed: Parsed): SearchOptions {
 	return {
@@ -139,12 +161,11 @@ function buildOptions(parsed: Parsed): SearchOptions {
 	};
 }
 
-async function searchAll(parsed: Parsed): Promise<CliResult> {
-	const opts = buildOptions(parsed);
+async function searchOne(query: string, options: SearchOptions): Promise<CliResult> {
 	const [exaRes, parallelRes, tavilyRes] = await Promise.allSettled([
-		searchWithExa(parsed.query, opts),
-		searchWithParallel(parsed.query, opts),
-		searchWithTavily(parsed.query, opts),
+		searchWithExa(query, options),
+		searchWithParallel(query, options),
+		searchWithTavily(query, options),
 	]);
 
 	const unwrap = (outcome: PromiseSettledResult<SearchResponse | null>, label: string): ProviderEntry => {
@@ -176,9 +197,13 @@ export async function main(argv: string[]): Promise<number> {
 		throw err;
 	}
 
-	const result = await searchAll(parsed);
+	const options = buildOptions(parsed);
+	const results: QueryResult[] = [];
+	for (const query of parsed.queries) {
+		results.push({ query, providers: await searchOne(query, options) });
+	}
 
-	const output = renderCli(result, parsed.options);
+	const output = renderCli(results, parsed.options);
 	if (output.trim()) process.stdout.write(output + "\n");
 	return 0;
 }

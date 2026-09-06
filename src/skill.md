@@ -1,6 +1,6 @@
 ---
 name: websearch
-description: Keyless web-search CLI that queries the Exa, Parallel, and Tavily AI search MCP servers in parallel and returns per-provider answers with a merged, deduplicated source list. Use whenever fresh web information is needed - verifying library APIs or versions, researching errors and release notes, checking docs, pricing, or any fact that may have changed after training cutoff.
+description: Keyless web-search CLI that queries the Exa, Parallel, and Tavily AI search MCP servers in parallel and returns per-provider answers with a merged, deduplicated source list. Supports multiple queries per call (repeat -q/--query) for broader research coverage. Use whenever fresh web information is needed - verifying library APIs or versions, researching errors and release notes, checking docs, pricing, or any fact that may have changed after training cutoff.
 ---
 
 # websearch — keyless web search CLI
@@ -29,6 +29,7 @@ From the repository root:
 
 Options:
 
+    -q, --query <q>                      search query; repeat to run several queries in sequence
     -n, --num-results <n>                results per provider (default 5, max 20)
         --recency <day|week|month|year>  recency filter
         --domain <d>                     restrict domains; prefix "-" to exclude
@@ -82,6 +83,16 @@ With `--json`, output is:
     }
 
 `results[].snippet` is truncated to 200 chars. Add `--content` to include `inlineContent: [{ url, title, content, error }]` per provider.
+
+## Multiple queries
+
+Repeat `-q/--query` to run several queries in one call:
+
+    bun run src/cli.ts -q "bun runtime benchmarks" -q "bun vs node performance" --json
+
+Queries run in sequence (each still fans out to all three providers in parallel); a failing query is reported under that query's `## Provider errors` and never blocks the rest. With 2+ queries, text output wraps each query in a `## Query: "<query>"` section, `--json` emits an array of `{ query, exa, parallel, tavily }` objects, and the Sources footer merges and dedupes URLs across all queries (first occurrence wins).
+
+For research tasks prefer 2-4 queries with varied angles, phrasing, and scope instead of near-duplicate rewordings. Good: ["react vs vue performance benchmarks 2026", "react vs vue developer experience comparison"]. Bad: ["react vs vue", "react vs vue comparison"] (too similar, redundant results).
 
 ## Interpreting results
 

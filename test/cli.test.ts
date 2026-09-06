@@ -40,6 +40,11 @@ test("exits 2 on missing query", async () => {
 	expect(await main([])).toBe(2);
 });
 
+test("exits 2 when --query has no value", async () => {
+	expect(await main(["--query"])).toBe(2);
+	expect(await main(["hello", "-q"])).toBe(2);
+});
+
 test("exits 2 on unknown option", async () => {
 	expect(await main(["--nope", "hello"])).toBe(2);
 });
@@ -54,7 +59,7 @@ test("renderCli emits per-provider JSON with response/error entries", () => {
 		parallel: { response: null, error: "boom" },
 		tavily: { response: null, error: null },
 	};
-	const out = JSON.parse(renderCli(res, baseOptions({ json: true })));
+	const out = JSON.parse(renderCli([{ query: "q", providers: res }], baseOptions({ json: true })));
 	expect(out.exa.response.results[0]).toEqual({ title: "A", url: "https://a.com", snippet: "s" });
 	expect(out.parallel.response).toBeNull();
 	expect(out.parallel.error).toBe("boom");
@@ -69,7 +74,7 @@ test("renderCli emits ## provider sections, merged sources, and errors", () => {
 		),
 		tavily: entry([{ title: "Shared", url: "https://same.com", snippet: "" }]),
 	};
-	const out = renderCli(res, baseOptions());
+	const out = renderCli([{ query: "q", providers: res }], baseOptions());
 	expect(out).toContain("## Exa\n\nanswer");
 	expect(out).toContain("## Parallel\n\nanswer");
 	expect(out).toContain("## Provider errors\n\n- **Parallel:** boom");
@@ -85,10 +90,55 @@ test("renderCli separates provider sections with two blank lines", () => {
 		parallel: entry([{ title: "P", url: "https://p.com", snippet: "" }]),
 		tavily: entry([{ title: "T", url: "https://t.com", snippet: "" }]),
 	};
-	const out = renderCli(res, baseOptions());
+	const out = renderCli([{ query: "q", providers: res }], baseOptions());
 	expect(out).toContain("answer\n\n\n## Parallel");
 	expect(out).toContain("## Parallel\n\nanswer\n\n\n## Tavily");
 	expect(out).toContain("## Tavily\n\nanswer\n\n\n---\n\n**Sources:**");
+});
+
+test("renderCli groups multiple queries under ## Query headers with one merged source list", () => {
+	const q1 = {
+		exa: entry([{ title: "Shared", url: "https://same.com", snippet: "" }]),
+		parallel: { response: null, error: "boom" },
+		tavily: { response: null, error: null },
+	};
+	const q2 = {
+		exa: entry([{ title: "Shared", url: "https://same.com", snippet: "" }, { title: "Other", url: "https://other.com", snippet: "" }]),
+		parallel: entry([{ title: "P2", url: "https://p2.com", snippet: "" }]),
+		tavily: { response: null, error: "tavily down" },
+	};
+	const out = renderCli(
+		[{ query: "first", providers: q1 }, { query: "second", providers: q2 }],
+		baseOptions(),
+	);
+	expect(out).toContain('## Query: "first"');
+	expect(out).toContain('## Query: "second"');
+	expect(out.indexOf('## Query: "first"')).toBeLessThan(out.indexOf("## Exa"));
+	expect(out).toContain("## Provider errors\n\n- **Parallel:** boom");
+	expect(out).toContain("- **Tavily:** tavily down");
+	const sources = out.slice(out.indexOf("**Sources:**"));
+	expect(sources).toContain("1. Shared");
+	expect(sources).toContain("2. Other");
+	expect(sources).toContain("3. P2");
+	expect(sources).not.toContain("4.");
+});
+
+test("renderCli emits a query-tagged JSON array for multiple queries", () => {
+	const make = (url: string) => ({
+		exa: entry([{ title: url, url, snippet: "" }]),
+		parallel: { response: null, error: "boom" },
+		tavily: { response: null, error: null },
+	});
+	const out = JSON.parse(renderCli(
+		[{ query: "one", providers: make("https://1.com") }, { query: "two", providers: make("https://2.com") }],
+		baseOptions({ json: true }),
+	));
+	expect(out).toHaveLength(2);
+	expect(out[0].query).toBe("one");
+	expect(out[0].exa.response.results[0].url).toBe("https://1.com");
+	expect(out[0].parallel.error).toBe("boom");
+	expect(out[1].query).toBe("two");
+	expect(out[1].exa.response.results[0].url).toBe("https://2.com");
 });
 
 test("main runs both providers and writes per-provider JSON (mocked fetch)", async () => {
@@ -163,6 +213,41 @@ test("main reports provider errors per provider and still renders the other", as
 	const out = cap.read();
 	expect(out).toContain("## Provider errors");
 	expect(out).toContain("- **Exa:** Exa MCP rate limit reached (429): slow down");
+});
+
+test("main searches each repeated -q query in order and groups output", async () => {
+	// SAFETY: test doubles the network boundary; each Response is fully constructed and the mock matches fetch's callable shape
+	globalThis.fetch = ((input: string | URL | Request) => {
+		const url = String(input);
+		if (url.includes("exa")) {
+			const sse = "data: " + JSON.stringify({
+				id: 1,
+				result: { content: [{ type: "text", text: `Title: exa\nURL: https://exa.com\nText: x.\n` }] },
+			}) + "\n\n";
+			return Promise.resolve(new Response(sse, { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+		}
+		const provider = url.includes("tavily") ? "tavily" : "parallel";
+		return Promise.resolve(new Response(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: {
+					structuredContent: { results: [{ url: `https://${provider}.com`, title: provider, excerpts: ["x"], content: "x", raw_content: null }] },
+				},
+			}),
+			{ status: 200, headers: { "Content-Type": "application/json" } },
+		));
+	}) as typeof globalThis.fetch;
+
+	const cap = captureStdout();
+	const code = await main(["positional one", "-q", "flag two", "--json"]);
+	expect(code).toBe(0);
+	const parsed = JSON.parse(cap.read());
+	expect(parsed).toHaveLength(2);
+	expect(parsed[0].query).toBe("positional one");
+	expect(parsed[1].query).toBe("flag two");
+	expect(parsed[0].exa.error).toBeNull();
+	expect(parsed[1].exa.error).toBeNull();
 });
 
 test("skill subcommand prints the bundled skill document", async () => {

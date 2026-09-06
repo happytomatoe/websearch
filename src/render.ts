@@ -15,6 +15,11 @@ export interface ProviderEntry {
 
 export type CliResult = Record<ProviderName, ProviderEntry>;
 
+export interface QueryResult {
+	query: string;
+	providers: CliResult;
+}
+
 const PROVIDER_LABELS = { exa: "Exa", parallel: "Parallel", tavily: "Tavily" } satisfies Record<ProviderName, string>;
 const PROVIDER_ORDER: ProviderName[] = ["exa", "parallel", "tavily"];
 
@@ -23,10 +28,8 @@ function formatSourceList(results: SearchResult[]): string {
 }
 
 // Mirrors pi-web-access gemini-search.ts multi-provider sections
-function renderText(providers: CliResult): string {
+function renderQuerySections(providers: CliResult, seenUrls: Set<string>, merged: SearchResult[]): string[] {
 	const sections: string[] = [];
-	const merged: SearchResult[] = [];
-	const seenUrls = new Set<string>();
 	const failures: string[] = [];
 
 	for (const provider of PROVIDER_ORDER) {
@@ -42,17 +45,39 @@ function renderText(providers: CliResult): string {
 		if (entry.error) failures.push(`- **${PROVIDER_LABELS[provider]}:** ${entry.error}`);
 	}
 	if (failures.length) sections.push(`## Provider errors\n\n${failures.join("\n")}`);
-	if (sections.length === 0) return "No results found.";
+	return sections;
+}
+
+// Per-query headers only when multiple queries ran, mirroring pi-web-access buildSearchReturn
+function renderText(queries: QueryResult[]): string {
+	const merged: SearchResult[] = [];
+	const seenUrls = new Set<string>();
+	const multi = queries.length > 1;
+
+	const blocks: string[] = [];
+	for (const { query, providers } of queries) {
+		const body = renderQuerySections(providers, seenUrls, merged).join("\n\n\n") || "No results found.";
+		blocks.push(multi ? `## Query: "${query}"\n\n${body}` : body);
+	}
+	if (blocks.length === 0) return "No results found.";
 
 	// 2 blank lines between blocks keep provider sections visually distinct in terminal output
-	let output = sections.join("\n\n\n");
+	let output = blocks.join("\n\n\n");
 	if (merged.length) output += `\n\n\n---\n\n**Sources:**\n${formatSourceList(merged)}`;
 	return output;
 }
 
-export function renderCli(result: CliResult, options: CliOptions): string {
+export function renderCli(results: QueryResult[], options: CliOptions): string {
 	if (options.json) {
-		return JSON.stringify({ exa: result.exa, parallel: result.parallel, tavily: result.tavily }, null, 2);
+		if (results.length === 1) {
+			const [{ providers }] = results;
+			return JSON.stringify({ exa: providers.exa, parallel: providers.parallel, tavily: providers.tavily }, null, 2);
+		}
+		return JSON.stringify(
+			results.map(({ query, providers }) => ({ query, exa: providers.exa, parallel: providers.parallel, tavily: providers.tavily })),
+			null,
+			2,
+		);
 	}
-	return renderText(result);
+	return renderText(results);
 }
