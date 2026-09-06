@@ -32,12 +32,16 @@ test.skipIf(!live)(
 		const hasTavilySection = /^## Tavily$/m.test(stdout);
 		const hasTavilyError = /^- \*\*Tavily:\*\*/m.test(stdout);
 		expect(hasTavilySection || hasTavilyError).toBe(true);
+		// Firecrawl's keyless budget (1,000/month) is shared per IP; same escape hatch.
+		const hasFirecrawlSection = /^## Firecrawl$/m.test(stdout);
+		const hasFirecrawlError = /^- \*\*Firecrawl:\*\*/m.test(stdout);
+		expect(hasFirecrawlSection || hasFirecrawlError).toBe(true);
 		expect(stdout.indexOf("## Exa") !== -1 ? stdout.indexOf("## Exa") : stdout.length).toBeLessThanOrEqual(
 			stdout.indexOf("## Parallel") !== -1 ? stdout.indexOf("## Parallel") : stdout.length,
 		);
 		// Two blank lines separate provider sections when both render.
 		if (hasExaSection && hasParallelSection) {
-			expect(stdout).toMatch(/## Exa\n\n\n+## Parallel/);
+			expect(stdout).toMatch(/## Exa[\s\S]*?\n\n\n## Parallel/);
 		}
 		expect(stdout).toContain("**Sources:**");
 	},
