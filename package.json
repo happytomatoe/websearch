@@ -7,11 +7,14 @@
   "scripts": {
     "build": "bun build src/cli.ts --compile --outfile dist/websearch",
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "lint": "oxlint --config oxlint.config.json"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.81.0",
     "@types/bun": "latest",
     "@types/node": "^26.0.0",
+    "oxlint": "1.81.0",
     "typescript": "^7.0.2"
   }
 }
