@@ -1,3 +1,5 @@
+parallel: true
+
 pre-push:
   commands:
     test:
