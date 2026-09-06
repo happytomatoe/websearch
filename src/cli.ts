@@ -1,0 +1,177 @@
+import { searchWithExa } from "./exa.ts";
+import { searchWithParallel } from "./parallel.ts";
+import { renderCli, type CliOptions, type CliResult, type ProviderEntry } from "./render.ts";
+import type { SearchOptions, SearchResponse } from "./types.ts";
+
+const USAGE = `usage: websearch <query> [options]
+
+Searches the web via the keyless Exa and Parallel MCP servers (both, in parallel).
+
+Options:
+  -n, --num-results <n>                number of results per provider (default: 5)
+      --recency <day|week|month|year>  recency filter
+      --domain <d>...                  restrict/exclude domains; prefix "-" to exclude
+      --content                        include page content as inlineContent
+      --json                           emit JSON instead of human-readable text
+  -h, --help                           show this help
+
+Examples:
+  websearch "bun javascript runtime"
+  websearch "exa docs" -n 3 --json
+  websearch "tailscale" --domain tailscale.com
+`;
+
+interface Parsed {
+	query: string;
+	options: CliOptions;
+}
+
+class UsageError extends Error {}
+
+function parseArgs(argv: string[]): Parsed {
+	let numResults = 5;
+	let recency: CliOptions["recency"];
+	const domains: string[] = [];
+	let includeContent = false;
+	let json = false;
+
+	const queryParts: string[] = [];
+
+	let i = 0;
+	while (i < argv.length) {
+		const arg = argv[i];
+		if (arg === "-h" || arg === "--help") {
+			console.log(USAGE);
+			process.exit(0);
+		}
+		if (arg === "-n" || arg === "--num-results") {
+			const n = Number(argv[i + 1]);
+			if (!Number.isInteger(n) || n < 1 || n > 20) {
+				throw new UsageError(`invalid num-results "${argv[i + 1]}" (expected integer 1-20)`);
+			}
+			numResults = n;
+			i += 2;
+			continue;
+		}
+		if (arg.startsWith("--num-results=")) {
+			const n = Number(arg.slice("--num-results=".length));
+			if (!Number.isInteger(n) || n < 1 || n > 20) {
+				throw new UsageError(`invalid num-results "${arg.slice("--num-results=".length)}" (expected integer 1-20)`);
+			}
+			numResults = n;
+			i++;
+			continue;
+		}
+		if (arg === "--recency") {
+			const value = argv[i + 1];
+			if (value !== "day" && value !== "week" && value !== "month" && value !== "year") {
+				throw new UsageError(`invalid recency "${value}" (expected day, week, month, or year)`);
+			}
+			recency = value;
+			i += 2;
+			continue;
+		}
+		if (arg.startsWith("--recency=")) {
+			const value = arg.slice("--recency=".length);
+			if (value !== "day" && value !== "week" && value !== "month" && value !== "year") {
+				throw new UsageError(`invalid recency "${value}" (expected day, week, month, or year)`);
+			}
+			recency = value;
+			i++;
+			continue;
+		}
+		if (arg === "--domain") {
+			const value = argv[i + 1];
+			if (!value || value.startsWith("-")) throw new UsageError(`--domain requires a value`);
+			domains.push(value);
+			i += 2;
+			continue;
+		}
+		if (arg.startsWith("--domain=")) {
+			const value = arg.slice("--domain=".length);
+			if (!value) throw new UsageError(`--domain requires a value`);
+			domains.push(value);
+			i++;
+			continue;
+		}
+		if (arg === "--content") {
+			includeContent = true;
+			i++;
+			continue;
+		}
+		if (arg === "--json") {
+			json = true;
+			i++;
+			continue;
+		}
+		if (arg === "--") {
+			for (let k = i + 1; k < argv.length; k++) queryParts.push(argv[k]);
+			break;
+		}
+		if (arg.startsWith("-")) {
+			throw new UsageError(`unknown option ${arg}`);
+		}
+		queryParts.push(arg);
+		i++;
+	}
+
+	const query = queryParts.join(" ");
+	if (!query.trim()) throw new UsageError("missing query argument");
+
+	return { query, options: { numResults, recency, domains, includeContent, json } };
+}
+function buildOptions(parsed: Parsed): SearchOptions {
+	return {
+		numResults: parsed.options.numResults,
+		recencyFilter: parsed.options.recency,
+		domainFilter: parsed.options.domains.length ? parsed.options.domains : undefined,
+		includeContent: parsed.options.includeContent,
+	};
+}
+
+async function searchAll(parsed: Parsed): Promise<CliResult> {
+	const opts = buildOptions(parsed);
+	const [exaRes, parallelRes] = await Promise.allSettled([
+		searchWithExa(parsed.query, opts),
+		searchWithParallel(parsed.query, opts),
+	]);
+
+	const unwrap = (outcome: PromiseSettledResult<SearchResponse | null>, label: string): ProviderEntry => {
+		if (outcome.status === "rejected") return { response: null, error: messageOf(outcome.reason) };
+		if (!outcome.value) return { response: null, error: `${label} returned no results` };
+		return { response: outcome.value, error: null };
+	};
+
+	return { exa: unwrap(exaRes, "Exa"), parallel: unwrap(parallelRes, "Parallel") };
+}
+
+function messageOf(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
+}
+
+export async function main(argv: string[]): Promise<number> {
+	let parsed: Parsed;
+	try {
+		parsed = parseArgs(argv);
+	} catch (err) {
+		if (err instanceof UsageError) {
+			process.stderr.write(`error: ${err.message}\n\n${USAGE}`);
+			return 2;
+		}
+		throw err;
+	}
+
+	const result = await searchAll(parsed);
+
+	const output = renderCli(result, parsed.options);
+	if (output.trim()) process.stdout.write(output + "\n");
+	return 0;
+}
+
+if (import.meta.main) {
+	const code = await main(process.argv.slice(2)).catch(err => {
+		process.stderr.write(`error: ${messageOf(err)}\n`);
+		return 1;
+	});
+	process.exit(code);
+}
