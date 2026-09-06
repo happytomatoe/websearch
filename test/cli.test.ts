@@ -60,11 +60,13 @@ test("renderCli emits per-provider JSON with response/error entries", () => {
 		exa: entry([{ title: "A", url: "https://a.com", snippet: "s" }]),
 		parallel: { response: null, error: "boom" },
 		tavily: { response: null, error: null },
+		firecrawl: entry([{ title: "F", url: "https://f.com", snippet: "fs" }]),
 	};
 	const out = JSON.parse(renderCli([{ query: "q", providers: res }], baseOptions({ json: true })));
 	expect(out.exa.response.results[0]).toEqual({ title: "A", url: "https://a.com", snippet: "s" });
 	expect(out.parallel.response).toBeNull();
 	expect(out.parallel.error).toBe("boom");
+	expect(out.firecrawl.response.results[0]).toEqual({ title: "F", url: "https://f.com", snippet: "fs" });
 });
 
 test("renderCli emits ## provider sections, merged sources, and errors", () => {
@@ -74,10 +76,12 @@ test("renderCli emits ## provider sections, merged sources, and errors", () => {
 		// model a real erroring provider with an empty-response entry.
 		parallel: { response: null, error: "boom" },
 		tavily: entry([{ title: "Shared", url: "https://same.com", snippet: "" }]),
+		firecrawl: { response: null, error: "firecrawl boom" },
 	};
 	const out = renderCli([{ query: "q", providers: res }], baseOptions());
 	expect(out).toContain("## Exa\n\nanswer");
 	expect(out).toContain("## Provider errors\n\n- **Parallel:** boom");
+	expect(out).toContain("- **Firecrawl:** firecrawl boom");
 	const sources = out.slice(out.indexOf("**Sources:**"));
 	expect(sources).toContain("1. Shared");
 	expect(sources).not.toContain("2.");
@@ -88,11 +92,13 @@ test("renderCli separates provider sections with two blank lines", () => {
 		exa: entry([{ title: "A", url: "https://a.com", snippet: "" }]),
 		parallel: entry([{ title: "P", url: "https://p.com", snippet: "" }]),
 		tavily: entry([{ title: "T", url: "https://t.com", snippet: "" }]),
+		firecrawl: entry([{ title: "F", url: "https://f.com", snippet: "" }]),
 	};
 	const out = renderCli([{ query: "q", providers: res }], baseOptions());
 	expect(out).toContain("answer\n\n\n## Parallel");
 	expect(out).toContain("## Parallel\n\nanswer\n\n\n## Tavily");
-	expect(out).toContain("## Tavily\n\nanswer\n\n\n---\n\n**Sources:**");
+	expect(out).toContain("## Tavily\n\nanswer\n\n\n## Firecrawl");
+	expect(out).toContain("## Firecrawl\n\nanswer\n\n\n---\n\n**Sources:**");
 });
 
 test("renderCli groups multiple queries under ## Query headers with one merged source list", () => {
@@ -100,11 +106,13 @@ test("renderCli groups multiple queries under ## Query headers with one merged s
 		exa: entry([{ title: "Shared", url: "https://same.com", snippet: "" }]),
 		parallel: { response: null, error: "boom" },
 		tavily: { response: null, error: null },
+		firecrawl: { response: null, error: null },
 	};
 	const q2 = {
 		exa: entry([{ title: "Shared", url: "https://same.com", snippet: "" }, { title: "Other", url: "https://other.com", snippet: "" }]),
 		parallel: entry([{ title: "P2", url: "https://p2.com", snippet: "" }]),
 		tavily: { response: null, error: "tavily down" },
+		firecrawl: entry([{ title: "F2", url: "https://f2.com", snippet: "" }]),
 	};
 	const out = renderCli(
 		[{ query: "first", providers: q1 }, { query: "second", providers: q2 }],
@@ -119,7 +127,7 @@ test("renderCli groups multiple queries under ## Query headers with one merged s
 	expect(sources).toContain("1. Shared");
 	expect(sources).toContain("2. Other");
 	expect(sources).toContain("3. P2");
-	expect(sources).not.toContain("4.");
+	expect(sources).toContain("4. F2");
 });
 
 test("renderCli emits a query-tagged JSON array for multiple queries", () => {
@@ -127,6 +135,7 @@ test("renderCli emits a query-tagged JSON array for multiple queries", () => {
 		exa: entry([{ title: url, url, snippet: "" }]),
 		parallel: { response: null, error: "boom" },
 		tavily: { response: null, error: null },
+		firecrawl: { response: null, error: null },
 	});
 	const out = JSON.parse(renderCli(
 		[{ query: "one", providers: make("https://1.com") }, { query: "two", providers: make("https://2.com") }],
@@ -140,7 +149,7 @@ test("renderCli emits a query-tagged JSON array for multiple queries", () => {
 	expect(out[1].exa.response.results[0].url).toBe("https://2.com");
 });
 
-test("main runs both providers and writes per-provider JSON (mocked fetch)", async () => {
+test("main runs all providers and writes per-provider JSON (mocked fetch)", async () => {
 	const exaSse =
 		"data: " +
 		JSON.stringify({ id: 1, result: { content: [{ type: "text", text: "Title: A\nURL: https://a.com\nText: hi.\n" }] } }) +
@@ -160,6 +169,16 @@ test("main runs both providers and writes per-provider JSON (mocked fetch)", asy
 			},
 		},
 	});
+	const firecrawlJson = JSON.stringify({
+		jsonrpc: "2.0",
+		id: 1,
+		result: {
+			content: [{
+				type: "text",
+				text: JSON.stringify({ success: true, data: { web: [{ url: "https://f.com", title: "F", description: "fd" }] } }),
+			}],
+		},
+	});
 
 	// SAFETY: test doubles the network boundary; each Response is fully constructed and the mock matches fetch's callable shape
 	globalThis.fetch = ((input: string | URL | Request) => {
@@ -172,6 +191,12 @@ test("main runs both providers and writes per-provider JSON (mocked fetch)", asy
 		}
 		if (url.includes("tavily")) {
 			return Promise.resolve(new Response(tavilyJson, {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			}));
+		}
+		if (url.includes("firecrawl")) {
+			return Promise.resolve(new Response(firecrawlJson, {
 				status: 200,
 				headers: { "Content-Type": "application/json" },
 			}));
@@ -192,6 +217,8 @@ test("main runs both providers and writes per-provider JSON (mocked fetch)", asy
 	expect(parsed.parallel.response.results[0].url).toBe("https://p.com");
 	expect(parsed.tavily.error).toBeNull();
 	expect(parsed.tavily.response.results[0].url).toBe("https://t.com");
+	expect(parsed.firecrawl.error).toBeNull();
+	expect(parsed.firecrawl.response.results[0].url).toBe("https://f.com");
 });
 
 test("main reports provider errors per provider and still renders the other", async () => {

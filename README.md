@@ -1,6 +1,6 @@
 # websearch
 
-Keyless web-search CLI that queries the [Exa](https://exa.ai), [Parallel](https://parallel.ai), and [Tavily](https://tavily.com) MCP servers over plain HTTP JSON-RPC. No API keys, no SDKs — output is compatible with [pi-extension](https://github.com/badlogic/pi-mono) search-result shapes (same `SearchResponse` shape as `pi-web-access`).
+Keyless web-search CLI that queries the [Exa](https://exa.ai), [Parallel](https://parallel.ai), [Tavily](https://tavily.com), and [Firecrawl](https://firecrawl.dev) MCP servers over plain HTTP JSON-RPC. No API keys, no SDKs — output is compatible with [pi-extension](https://github.com/badlogic/pi-mono) search-result shapes (same `SearchResponse` shape as `pi-web-access`).
 
 ## Install / build
 
@@ -50,7 +50,7 @@ websearch "gossip protocols" --json | jq '.exa.response.answer'
 
 ### Multiple queries
 
-Repeat `-q/--query` to run several queries in one call (a positional query runs first). Each query runs sequentially — all three providers still fan out in parallel within a query — and one query failing never blocks the rest. With multiple queries, text output groups each query under a `## Query: "<query>"` header and merges/dedupes all sources into a single footer list; `--json` emits an array of `{ query, exa, parallel, tavily }` objects instead of the single-query object.
+Repeat `-q/--query` to run several queries in one call (a positional query runs first). Each query runs sequentially — all four providers still fan out in parallel within a query — and one query failing never blocks the rest. With multiple queries, text output groups each query under a `## Query: "<query>"` header and merges/dedupes all sources into a single footer list; `--json` emits an array of `{ query, exa, parallel, tavily, firecrawl }` objects instead of the single-query object.
 
 For research, prefer 2–4 varied angles over near-duplicate phrasings — each query gets its own per-provider answers, so varying phrasing, scope, and angle gives much broader coverage. Good: `["react vs vue performance benchmarks 2026", "react vs vue developer experience comparison"]`. Bad: `["react vs vue", "react vs vue comparison"]` (too similar, redundant results).
 
@@ -58,17 +58,18 @@ Exit codes: `0` success (partial provider failure still exits 0 — check `## Pr
 
 ## How it works
 
-All three providers are called with unsigned `tools/call` JSON-RPC requests:
+All four providers are called with unsigned `tools/call` JSON-RPC requests:
 
 - **Exa** — `POST https://mcp.exa.ai/mcp?tools=web_search_exa` (SSE `data:` lines, with a plain-JSON fallback). Advanced searches (`--domain`, `--content`) use `web_search_advanced_exa` (`includeDomains`/`excludeDomains`, `enableHighlights`) and fall back to the basic tool — filters then degrade into `site:` / `-site:` query text — when the advanced tool errors.
 - **Parallel** — `POST https://search.parallel.ai/mcp`, tool `web_search`, args `{ objective, search_queries: [query] }`. Results are taken from `structuredContent.results` when present, else parsed from the text blocks.
 - **Tavily** — `POST https://mcp.tavily.com/mcp/`, tool `tavily_search`, with the `X-Tavily-Access-Mode: keyless` header (required, selects the free keyless tier). Args: `query`, `max_results`, `time_range`, `include_domains`/`exclude_domains`, `include_raw_content`. The keyless search payload arrives via `structuredContent`; `answer` is usually `null`, so the answer text is built from result content.
+- **Firecrawl** — `POST https://mcp.firecrawl.dev/v2/mcp`, tool `firecrawl_search`, args `{ query, limit, tbs, includeDomains?, excludeDomains? }`. SSE response; payload JSON arrives in `content[].text` as `{ success, data: { web: [{ url, title, description, position }] }, creditsUsed }`. 1,000 free searches/month shared per IP.
 
-All three searches always run concurrently (`Promise.allSettled`); the text output has `## Exa`, `## Parallel`, and `## Tavily` sections, a merged URL-deduplicated `**Sources:**` footer, and a `## Provider errors` section when a provider fails.
+All four searches always run concurrently (`Promise.allSettled`); the text output has `## Exa`, `## Parallel`, `## Tavily`, and `## Firecrawl` sections, a merged URL-deduplicated `**Sources:**` footer, and a `## Provider errors` section when a provider fails.
 
 ## JSON output
 
-`--json` prints `{ exa: {...}, parallel: {...}, tavily: {...} }`, where each entry is `{ response, error }` (one of them `null`; `response` is the `{ answer, results, inlineContent? }` object). Each result is `{ title, url, snippet }`. Pipe into `jq`:
+`--json` prints `{ exa: {...}, parallel: {...}, tavily: {...}, firecrawl: {...} }`, where each entry is `{ response, error }` (one of them `null`; `response` is the `{ answer, results, inlineContent? }` object). Each result is `{ title, url, snippet }`. Pipe into `jq`:
 
 ```sh
 websearch "vector databases" --json | jq -r '.exa.response.results[].url'
@@ -76,7 +77,7 @@ websearch "vector databases" --json | jq -r '.exa.response.results[].url'
 
 ## Caveats
 
-- **Keyless = shared rate limits.** All three endpoints throttle anonymous traffic aggressively; the failing provider is reported under `## Provider errors` while the others still render. Exa/Parallel answer `429`; Tavily answers HTTP 200 with an error payload mentioning its "monthly keyless limit" (bucketed, so it can clear within minutes). Retry later. Tavily documents an upgrade path (free API key, 1,000 credits/month): this CLI does not currently accept an API key, so using it would require code changes to send an `Authorization: Bearer` header.
+- **Keyless = shared rate limits.** All four endpoints throttle anonymous traffic aggressively; the failing provider is reported under `## Provider errors` while the others still render. Exa/Parallel answer `429`; Tavily and Firecrawl answer HTTP 200 with an error payload mentioning their "monthly keyless limit" (bucketed, so it can clear within minutes). Firecrawl's free tier is 1,000 searches/month shared per IP. Retry later.
 - Domain/recency/content filters are best-effort on Parallel (folded into query text); Exa honors them natively on the advanced tool.
 - Results and answer text come straight from the providers — expect different output between `exa` and `parallel` for the same query.
 
@@ -92,4 +93,4 @@ just test-query "bun javascript runtime"   # live CLI smoke test via just
 just e2e         # spawns the CLI and asserts ## Exa / ## Parallel output structure
 ```
 
-Layout: `src/types.ts` (shared types) · `src/exa.ts` · `src/parallel.ts` · `src/render.ts` (text/JSON rendering) · `src/cli.ts` (arg parsing + main). Protocol details and captured request/response fixtures live in `PLAN.md`.
+Layout: `src/types.ts` (shared types) · `src/exa.ts` · `src/parallel.ts` · `src/tavily.ts` · `src/firecrawl.ts` · `src/render.ts` (text/JSON rendering) · `src/cli.ts` (arg parsing + main). Protocol details and captured request/response fixtures live in `PLAN.md`.

@@ -1,4 +1,5 @@
 import { searchWithExa } from "./exa.ts";
+import { searchWithFirecrawl } from "./firecrawl.ts";
 import { searchWithParallel } from "./parallel.ts";
 import { searchWithTavily } from "./tavily.ts";
 import { renderCli, type CliOptions, type CliResult, type ProviderEntry, type QueryResult } from "./render.ts";
@@ -7,7 +8,7 @@ import skillDoc from "./skill.md" with { type: "text" };
 
 const USAGE = `usage: websearch [query] [options]
 
-Searches the web via the keyless Exa, Parallel, and Tavily MCP servers (all three, in parallel).
+Searches the web via the keyless Exa, Parallel, Tavily, and Firecrawl MCP servers (all four, in parallel).
 
 Options:
   -q, --query <q>                      search query; repeat to run several queries in sequence
@@ -163,10 +164,11 @@ function buildOptions(parsed: Parsed): SearchOptions {
 }
 
 async function searchOne(query: string, options: SearchOptions): Promise<CliResult> {
-	const [exaRes, parallelRes, tavilyRes] = await Promise.allSettled([
+	const [exaRes, parallelRes, tavilyRes, firecrawlRes] = await Promise.allSettled([
 		searchWithExa(query, options),
 		searchWithParallel(query, options),
 		searchWithTavily(query, options),
+		searchWithFirecrawl(query, options),
 	]);
 
 	const unwrap = (outcome: PromiseSettledResult<SearchResponse | null>, label: string): ProviderEntry => {
@@ -175,7 +177,7 @@ async function searchOne(query: string, options: SearchOptions): Promise<CliResu
 		return { response: outcome.value, error: null };
 	};
 
-	return { exa: unwrap(exaRes, "Exa"), parallel: unwrap(parallelRes, "Parallel"), tavily: unwrap(tavilyRes, "Tavily") };
+	return { exa: unwrap(exaRes, "Exa"), parallel: unwrap(parallelRes, "Parallel"), tavily: unwrap(tavilyRes, "Tavily"), firecrawl: unwrap(firecrawlRes, "Firecrawl") };
 }
 
 function messageOf(cause: unknown): string {

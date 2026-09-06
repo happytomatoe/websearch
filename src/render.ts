@@ -20,8 +20,8 @@ export interface QueryResult {
 	providers: CliResult;
 }
 
-const PROVIDER_LABELS = { exa: "Exa", parallel: "Parallel", tavily: "Tavily" } satisfies Record<ProviderName, string>;
-const PROVIDER_ORDER: ProviderName[] = ["exa", "parallel", "tavily"];
+const PROVIDER_LABELS = { exa: "Exa", parallel: "Parallel", tavily: "Tavily", firecrawl: "Firecrawl" } satisfies Record<ProviderName, string>;
+const PROVIDER_ORDER: ProviderName[] = ["exa", "parallel", "tavily", "firecrawl"];
 
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g; // eslint-disable-line no-control-regex -- intentional: strip remote provider control characters from terminal output
 
@@ -77,10 +77,10 @@ export function renderCli(results: QueryResult[], options: CliOptions): string {
 	if (options.json) {
 		if (results.length === 1) {
 			const [{ providers }] = results;
-			return JSON.stringify({ exa: providers.exa, parallel: providers.parallel, tavily: providers.tavily }, null, 2);
+			return JSON.stringify({ exa: providers.exa, parallel: providers.parallel, tavily: providers.tavily, firecrawl: providers.firecrawl }, null, 2);
 		}
 		return JSON.stringify(
-			results.map(({ query, providers }) => ({ query, exa: providers.exa, parallel: providers.parallel, tavily: providers.tavily })),
+			results.map(({ query, providers }) => ({ query, exa: providers.exa, parallel: providers.parallel, tavily: providers.tavily, firecrawl: providers.firecrawl })),
 			null,
 			2,
 		);

@@ -19,10 +19,10 @@ skill:
     ln -sf "{{justfile_directory()}}/src/skill.md" ~/.agent/skills/websearch/SKILL.md
     echo "Installed skill → ~/.agent/skills/websearch/SKILL.md"
 
-# Live smoke test against all three providers
+# Live smoke test against all four providers
 test-query query *args:
     bun run src/cli.ts "{{query}}" {{ args }}
 
-# End-to-end: spawns the real CLI and asserts ## Exa / ## Parallel / ## Tavily structure (real network)
+# End-to-end: spawns the real CLI and asserts ## Exa / ## Parallel / ## Tavily / ## Firecrawl structure (real network)
 e2e:
     LIVE=1 bun test test/cli.live.test.ts

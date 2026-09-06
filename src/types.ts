@@ -27,4 +27,4 @@ export interface SearchOptions {
 	signal?: AbortSignal;
 }
 
-export type ProviderName = "exa" | "parallel" | "tavily";
+export type ProviderName = "exa" | "parallel" | "tavily" | "firecrawl";
