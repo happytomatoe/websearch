@@ -54,7 +54,7 @@ Repeat `-q/--query` to run several queries in one call (a positional query runs 
 
 For research, prefer 2–4 varied angles over near-duplicate phrasings — each query gets its own per-provider answers, so varying phrasing, scope, and angle gives much broader coverage. Good: `["react vs vue performance benchmarks 2026", "react vs vue developer experience comparison"]`. Bad: `["react vs vue", "react vs vue comparison"]` (too similar, redundant results).
 
-Exit codes: `0` success, `1` runtime/search failure, `2` usage error.
+Exit codes: `0` success (partial provider failure still exits 0 — check `## Provider errors`), `1` all providers failed, `2` usage error.
 
 ## How it works
 
@@ -76,7 +76,7 @@ websearch "vector databases" --json | jq -r '.exa.response.results[].url'
 
 ## Caveats
 
-- **Keyless = shared rate limits.** All three endpoints throttle anonymous traffic aggressively; the failing provider is reported under `## Provider errors` while the others still render. Exa/Parallel answer `429`; Tavily answers HTTP 200 with an error payload mentioning its "monthly keyless limit" (bucketed, so it can clear within minutes). Retry later. Tavily documents an upgrade path (free API key, 1,000 credits/month) that works without code changes via an `Authorization: Bearer` header.
+- **Keyless = shared rate limits.** All three endpoints throttle anonymous traffic aggressively; the failing provider is reported under `## Provider errors` while the others still render. Exa/Parallel answer `429`; Tavily answers HTTP 200 with an error payload mentioning its "monthly keyless limit" (bucketed, so it can clear within minutes). Retry later. Tavily documents an upgrade path (free API key, 1,000 credits/month): this CLI does not currently accept an API key, so using it would require code changes to send an `Authorization: Bearer` header.
 - Domain/recency/content filters are best-effort on Parallel (folded into query text); Exa honors them natively on the advanced tool.
 - Results and answer text come straight from the providers — expect different output between `exa` and `parallel` for the same query.
 

@@ -3,7 +3,7 @@ import type { ExtractedContent, RecencyFilter, SearchOptions, SearchResponse, Se
 const EXA_MCP_URL = "https://mcp.exa.ai/mcp";
 const EXA_MCP_ADVANCED_TOOL = "web_search_advanced_exa";
 const EXA_MCP_BASIC_TOOL = "web_search_exa";
-const SEARCH_TIMEOUT_MS = 60_000;
+const SEARCH_TIMEOUT_MS = 10_000;
 
 interface ExaMcpRpcResponse {
 	result?: {
@@ -243,9 +243,9 @@ async function callExaMcp(
 }
 function parseJsonMcpResults(text: string): ExaSearchResult[] | null {
 	try {
-		// SAFETY: external MCP payload; JSON.parse gives unknown, length check below validates the shape
+		// SAFETY: external MCP payload; JSON.parse gives unknown, Array.isArray below validates the shape
 		const results = (JSON.parse(text) as { results?: ExaSearchResult[] }).results;
-		return Array.isArray(results) && results.length > 0 ? results : null;
+		return Array.isArray(results) ? results : null;
 	} catch {
 		return null;
 	}
@@ -312,7 +312,7 @@ async function searchWithExaMcpTool(
 	const text = await callExaMcp(tool, args, options.signal);
 
 	const jsonResults = parseJsonMcpResults(text);
-	if (jsonResults) {
+	if (jsonResults !== null) {
 		return toSearchResponse(
 			buildAnswerFromSearchResults(jsonResults),
 			mapResults(jsonResults),

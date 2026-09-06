@@ -107,7 +107,7 @@ test("reports 429 rate limit on basic search", async () => {
 	expect(err?.message).toContain("429");
 });
 
-test("throws when error field present and result.isError true", async () => {
+test("throws when result.isError true with error message in content", async () => {
 	mockFetchResponse(() => sseEvent({ id: 1, result: { isError: true, content: [{ type: "text", text: "internal failure" }] } }));
 	const err = await searchWithExa("q").then(() => null).catch(e => e);
 	expect(err?.message).toContain("internal failure");

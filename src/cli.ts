@@ -54,7 +54,7 @@ function parseArgs(argv: string[]): Parsed {
 	let i = 0;
 	while (i < argv.length) {
 		const arg = argv[i];
-		if (arg === "skill") {
+		if (arg === "skill" && i === 0) {
 			throw new EarlyExitError(skillDoc, 0);
 		}
 		if (arg === "-h" || arg === "--help") {
@@ -112,7 +112,8 @@ function parseArgs(argv: string[]): Parsed {
 		}
 		if (arg === "--domain") {
 			const value = argv[i + 1];
-			if (!value || value.startsWith("-")) throw new UsageError(`--domain requires a value`);
+			// A leading "-" is the documented exclude prefix (e.g. -reddit.com), not an option.
+			if (!value || value === "-") throw new UsageError(`--domain requires a value`);
 			domains.push(value);
 			i += 2;
 			continue;
@@ -205,7 +206,10 @@ export async function main(argv: string[]): Promise<number> {
 
 	const output = renderCli(results, parsed.options);
 	if (output.trim()) process.stdout.write(output + "\n");
-	return 0;
+	const allFailed = results.every(r =>
+		Object.values(r.providers).every(p => p.response === null)
+	);
+	return allFailed ? 1 : 0;
 }
 
 if (import.meta.main) {

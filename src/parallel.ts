@@ -2,7 +2,7 @@ import { isObject } from "./guards.ts";
 import type { ExtractedContent, SearchOptions, SearchResponse, SearchResult } from "./types.ts";
 
 const PARALLEL_MCP_URL = "https://search.parallel.ai/mcp";
-const SEARCH_TIMEOUT_MS = 60_000;
+const SEARCH_TIMEOUT_MS = 10_000;
 
 interface ParallelMcpRpcResponse {
 	result?: {
@@ -184,10 +184,30 @@ function parseMcpResults(text: string): McpResult[] {
 		.filter(r => r.url.length > 0);
 }
 
-export async function searchWithParallel(query: string, options: SearchOptions = {}): Promise<SearchResponse> {
-	const text = await callParallelMcp({ objective: query, search_queries: [query] }, options.signal);
+function buildMcpQuery(query: string, options: SearchOptions): string {
+	const parts = [query];
+	if (options.domainFilter?.length) {
+		for (const d of options.domainFilter) {
+			parts.push(d.startsWith("-") ? `-site:${d.slice(1)}` : `site:${d}`);
+		}
+	}
+	if (options.recencyFilter) {
+		const now = new Date();
+		switch (options.recencyFilter) {
+			case "day": parts.push("past 24 hours"); break;
+			case "week": parts.push("past week"); break;
+			case "month": parts.push(`${now.toLocaleString("en", { month: "long" })} ${now.getFullYear()}`); break;
+			case "year": parts.push(String(now.getFullYear())); break;
+		}
+	}
+	return parts.join(" ");
+}
 
-	const results = parseMcpResults(text);
+export async function searchWithParallel(query: string, options: SearchOptions = {}): Promise<SearchResponse> {
+	const effectiveQuery = buildMcpQuery(query, options);
+	const text = await callParallelMcp({ objective: effectiveQuery, search_queries: [effectiveQuery] }, options.signal);
+
+	const results = parseMcpResults(text).slice(0, options.numResults ?? 5);
 
 	const response: SearchResponse = {
 		answer: buildAnswerFromExcerpts(results),

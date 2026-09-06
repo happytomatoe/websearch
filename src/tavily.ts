@@ -3,7 +3,7 @@ import type { ExtractedContent, SearchOptions, SearchResponse, SearchResult } fr
 
 const TAVILY_MCP_URL = "https://mcp.tavily.com/mcp/";
 const TAVILY_TOOL = "tavily_search";
-const SEARCH_TIMEOUT_MS = 60_000;
+const SEARCH_TIMEOUT_MS = 10_000;
 
 interface TavilyMcpRpcResponse {
 	result?: {
@@ -67,16 +67,18 @@ function tavilySearchArgs(query: string, options: SearchOptions): TavilySearchAr
  * with plain JSON.
  */
 function extractRpcPayload(body: string): TavilyMcpRpcResponse {
-	const dataLine = body.split("\n").find(line => line.startsWith("data:"));
-	if (dataLine) {
-		const payload = dataLine.slice("data:".length).trim();
-		if (payload) {
-			try {
-				// SAFETY: external MCP SSE payload; JSON.parse gives unknown, shape validated by TavilyMcpRpcResponse fields
-				return JSON.parse(payload) as TavilyMcpRpcResponse;
-			} catch {
-				// Fall through to whole-body JSON parsing.
-			}
+	// SSE streams may carry notifications before the final tool result; pick the
+	// first data event that actually contains a JSON-RPC result or error.
+	for (const line of body.split("\n")) {
+		if (!line.startsWith("data:")) continue;
+		const payload = line.slice("data:".length).trim();
+		if (!payload) continue;
+		try {
+			// SAFETY: external MCP SSE payload; JSON.parse gives unknown, shape validated by TavilyMcpRpcResponse fields
+			const candidate = JSON.parse(payload) as TavilyMcpRpcResponse;
+			if (candidate?.result || candidate?.error) return candidate;
+		} catch {
+			// Malformed event; keep scanning.
 		}
 	}
 	// SAFETY: external MCP payload; JSON.parse gives unknown, shape validated by TavilyMcpRpcResponse fields

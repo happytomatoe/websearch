@@ -100,7 +100,7 @@ With `--json`, output for a single query is:
 
 With 2+ queries, `--json` emits an array of `{ query, exa, parallel, tavily }` objects instead.
 
-`results[].snippet` is truncated to 200 chars. Add `--content` to include `inlineContent: [{ url, title, content, error }]` per provider.
+`results[].snippet` is provider-dependent: Tavily and Parallel truncate to 200 chars; Exa's basic-tool results carry no snippet text (use `--content` for Exa content via `inlineContent`). Add `--content` to include `inlineContent: [{ url, title, content, error }]` per provider.
 
 ## Interpreting results
 

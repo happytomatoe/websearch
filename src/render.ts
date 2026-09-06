@@ -23,8 +23,14 @@ export interface QueryResult {
 const PROVIDER_LABELS = { exa: "Exa", parallel: "Parallel", tavily: "Tavily" } satisfies Record<ProviderName, string>;
 const PROVIDER_ORDER: ProviderName[] = ["exa", "parallel", "tavily"];
 
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g; // eslint-disable-line no-control-regex -- intentional: strip remote provider control characters from terminal output
+
+function sanitizeText(text: string): string {
+	return text.replace(CONTROL_CHARS, "");
+}
+
 function formatSourceList(results: SearchResult[]): string {
-	return results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}`).join("\n\n");
+	return results.map((r, i) => `${i + 1}. ${sanitizeText(r.title)}\n   ${r.url}`).join("\n\n");
 }
 
 // Mirrors pi-web-access gemini-search.ts multi-provider sections
@@ -35,14 +41,14 @@ function renderQuerySections(providers: CliResult, seenUrls: Set<string>, merged
 	for (const provider of PROVIDER_ORDER) {
 		const entry = providers[provider];
 		if (entry.response) {
-			sections.push(`## ${PROVIDER_LABELS[provider]}\n\n${(entry.response.answer || "(No answer text returned.)").trimEnd()}`);
+			sections.push(`## ${PROVIDER_LABELS[provider]}\n\n${sanitizeText((entry.response.answer || "(No answer text returned.)").trimEnd())}`);
 			for (const result of entry.response.results) {
 				if (seenUrls.has(result.url)) continue;
 				seenUrls.add(result.url);
 				merged.push(result);
 			}
 		}
-		if (entry.error) failures.push(`- **${PROVIDER_LABELS[provider]}:** ${entry.error}`);
+		if (entry.error) failures.push(`- **${PROVIDER_LABELS[provider]}:** ${sanitizeText(entry.error)}`);
 	}
 	if (failures.length) sections.push(`## Provider errors\n\n${failures.join("\n")}`);
 	return sections;

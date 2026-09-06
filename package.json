@@ -9,6 +9,7 @@
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit",
     "lint": "oxlint --config oxlint.config.json",
+    "prepare": "lefthook install",
     "dupcheck": "jscpd src test --min-tokens 50",
     "unused": "knip"
   },

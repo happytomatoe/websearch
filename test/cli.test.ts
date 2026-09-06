@@ -34,7 +34,9 @@ const baseOptions = (over: Partial<CliOptions> = {}): CliOptions => ({
 });
 
 const entry = (results: { title: string; url: string; snippet: string }[], error: string | null = null) =>
-	results.length || !error ? { response: { answer: "answer", results }, error } : { response: null, error };
+	results.length
+		? { response: { answer: "answer", results }, error: null }
+		: { response: null, error };
 
 test("exits 2 on missing query", async () => {
 	expect(await main([])).toBe(2);
@@ -68,20 +70,17 @@ test("renderCli emits per-provider JSON with response/error entries", () => {
 test("renderCli emits ## provider sections, merged sources, and errors", () => {
 	const res = {
 		exa: entry([{ title: "Shared", url: "https://same.com", snippet: "" }]),
-		parallel: entry(
-			[{ title: "Shared", url: "https://same.com", snippet: "" }, { title: "Extra", url: "https://extra.com", snippet: "" }],
-			"boom",
-		),
+		// Results plus error together is impossible per ProviderEntry's contract;
+		// model a real erroring provider with an empty-response entry.
+		parallel: { response: null, error: "boom" },
 		tavily: entry([{ title: "Shared", url: "https://same.com", snippet: "" }]),
 	};
 	const out = renderCli([{ query: "q", providers: res }], baseOptions());
 	expect(out).toContain("## Exa\n\nanswer");
-	expect(out).toContain("## Parallel\n\nanswer");
 	expect(out).toContain("## Provider errors\n\n- **Parallel:** boom");
 	const sources = out.slice(out.indexOf("**Sources:**"));
 	expect(sources).toContain("1. Shared");
-	expect(sources).toContain("2. Extra");
-	expect(sources).not.toContain("3.");
+	expect(sources).not.toContain("2.");
 });
 
 test("renderCli separates provider sections with two blank lines", () => {
