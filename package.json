@@ -1,0 +1,17 @@
+{
+  "name": "websearch",
+  "version": "0.1.0",
+  "description": "Keyless web search CLI over Exa and Parallel MCP servers",
+  "type": "module",
+  "module": "src/cli.ts",
+  "scripts": {
+    "build": "bun build src/cli.ts --compile --outfile dist/websearch",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^26.0.0",
+    "typescript": "^7.0.2"
+  }
+}
