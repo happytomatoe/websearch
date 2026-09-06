@@ -33,7 +33,7 @@ From the repository root:
 Options:
 
     -q, --query <q>                      search query; repeat to run several queries in sequence
-    -n, --num-results <n>                results per provider (default 5, max 20)
+    -n, --num-results <n>                results per query (default: 5, max 20)
         --recency <day|week|month|year>  recency filter
         --domain <d>                     restrict domains; prefix "-" to exclude
         --content                        include page content as inlineContent (JSON mode)
