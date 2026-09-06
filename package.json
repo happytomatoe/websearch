@@ -8,12 +8,17 @@
     "build": "bun build src/cli.ts --compile --outfile dist/websearch",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit",
-    "lint": "oxlint --config oxlint.config.json"
+    "lint": "oxlint --config oxlint.config.json",
+    "dupcheck": "jscpd src test --min-tokens 50",
+    "unused": "knip"
   },
   "devDependencies": {
     "@oxlint/plugins": "1.81.0",
     "@types/bun": "latest",
     "@types/node": "^26.0.0",
+    "jscpd": "^5.1.2",
+    "knip": "^6.34.0",
+    "lefthook": "^2.1.12",
     "oxlint": "1.81.0",
     "typescript": "^7.0.2"
   }
