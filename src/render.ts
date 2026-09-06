@@ -15,8 +15,8 @@ export interface ProviderEntry {
 
 export type CliResult = Record<ProviderName, ProviderEntry>;
 
-const PROVIDER_LABELS: Record<ProviderName, string> = { exa: "Exa", parallel: "Parallel" };
-const PROVIDER_ORDER: ProviderName[] = ["exa", "parallel"];
+const PROVIDER_LABELS: Record<ProviderName, string> = { exa: "Exa", parallel: "Parallel", tavily: "Tavily" };
+const PROVIDER_ORDER: ProviderName[] = ["exa", "parallel", "tavily"];
 
 function formatSourceList(results: SearchResult[]): string {
 	return results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}`).join("\n\n");
@@ -52,7 +52,7 @@ function renderText(providers: CliResult): string {
 
 export function renderCli(result: CliResult, options: CliOptions): string {
 	if (options.json) {
-		return JSON.stringify({ exa: result.exa, parallel: result.parallel }, null, 2);
+		return JSON.stringify({ exa: result.exa, parallel: result.parallel, tavily: result.tavily }, null, 2);
 	}
 	return renderText(result);
 }

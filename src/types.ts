@@ -27,7 +27,7 @@ export interface SearchOptions {
 	signal?: AbortSignal;
 }
 
-export type ProviderName = "exa" | "parallel";
+export type ProviderName = "exa" | "parallel" | "tavily";
 
 /** Result per provider for `both` mode; errors are captured per provider. */
 export interface ProviderOutcome {

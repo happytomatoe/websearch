@@ -1,6 +1,7 @@
 import { afterEach, test, expect } from "bun:test";
 import { main } from "../src/cli.ts";
 import { renderCli, type CliOptions } from "../src/render.ts";
+import { searchWithTavily } from "../src/tavily.ts";
 
 const realFetch = globalThis.fetch;
 const realStdoutWrite = process.stdout.write;
@@ -46,6 +47,7 @@ test("renderCli emits per-provider JSON with response/error entries", () => {
 	const res = {
 		exa: entry([{ title: "A", url: "https://a.com", snippet: "s" }]),
 		parallel: { response: null, error: "boom" },
+		tavily: { response: null, error: null },
 	};
 	const out = JSON.parse(renderCli(res, baseOptions({ json: true })));
 	expect(out.exa.response.results[0]).toEqual({ title: "A", url: "https://a.com", snippet: "s" });
@@ -60,6 +62,7 @@ test("renderCli emits ## provider sections, merged sources, and errors", () => {
 			[{ title: "Shared", url: "https://same.com", snippet: "" }, { title: "Extra", url: "https://extra.com", snippet: "" }],
 			"boom",
 		),
+		tavily: entry([{ title: "Shared", url: "https://same.com", snippet: "" }]),
 	};
 	const out = renderCli(res, baseOptions());
 	expect(out).toContain("## Exa\n\nanswer");
@@ -75,10 +78,12 @@ test("renderCli separates provider sections with two blank lines", () => {
 	const res = {
 		exa: entry([{ title: "A", url: "https://a.com", snippet: "" }]),
 		parallel: entry([{ title: "P", url: "https://p.com", snippet: "" }]),
+		tavily: entry([{ title: "T", url: "https://t.com", snippet: "" }]),
 	};
 	const out = renderCli(res, baseOptions());
 	expect(out).toContain("answer\n\n\n## Parallel");
-	expect(out).toContain("## Parallel\n\nanswer\n\n\n---\n\n**Sources:**");
+	expect(out).toContain("## Parallel\n\nanswer\n\n\n## Tavily");
+	expect(out).toContain("## Tavily\n\nanswer\n\n\n---\n\n**Sources:**");
 });
 
 test("main runs both providers and writes per-provider JSON (mocked fetch)", async () => {
@@ -91,13 +96,34 @@ test("main runs both providers and writes per-provider JSON (mocked fetch)", asy
 		id: 1,
 		result: { structuredContent: { results: [{ url: "https://p.com", title: "P", excerpts: ["pe"] }] } },
 	});
+	const tavilyJson = JSON.stringify({
+		jsonrpc: "2.0",
+		id: 1,
+		result: {
+			structuredContent: {
+				answer: null,
+				results: [{ url: "https://t.com", title: "T", content: "tc", raw_content: null }],
+			},
+		},
+	});
 
 	globalThis.fetch = ((input: string | URL | Request) => {
 		const url = String(input);
-		const body = url.includes("exa") ? exaSse : parallelJson;
-		return Promise.resolve(new Response(body, {
+		if (url.includes("exa")) {
+			return Promise.resolve(new Response(exaSse, {
+				status: 200,
+				headers: { "Content-Type": "text/event-stream" },
+			}));
+		}
+		if (url.includes("tavily")) {
+			return Promise.resolve(new Response(tavilyJson, {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			}));
+		}
+		return Promise.resolve(new Response(parallelJson, {
 			status: 200,
-			headers: { "Content-Type": url.includes("exa") ? "text/event-stream" : "application/json" },
+			headers: { "Content-Type": "application/json" },
 		}));
 	}) as unknown as typeof globalThis.fetch;
 
@@ -109,6 +135,8 @@ test("main runs both providers and writes per-provider JSON (mocked fetch)", asy
 	expect(parsed.exa.response.results[0].url).toBe("https://a.com");
 	expect(parsed.parallel.error).toBeNull();
 	expect(parsed.parallel.response.results[0].url).toBe("https://p.com");
+	expect(parsed.tavily.error).toBeNull();
+	expect(parsed.tavily.response.results[0].url).toBe("https://t.com");
 });
 
 test("main reports provider errors per provider and still renders the other", async () => {
@@ -128,4 +156,122 @@ test("main reports provider errors per provider and still renders the other", as
 	const out = cap.read();
 	expect(out).toContain("## Provider errors");
 	expect(out).toContain("- **Exa:** Exa MCP rate limit reached (429): slow down");
+});
+
+test("skill subcommand prints the bundled skill document", async () => {
+	const cap = captureStdout();
+	const code = await main(["skill"]);
+	expect(code).toBe(0);
+	const out = cap.read();
+	expect(out).toContain("# websearch");
+	expect(out).toContain("## How to run");
+	expect(out).toContain("bun run src/cli.ts");
+});
+
+test("--help returns 0 through main without process.exit", async () => {
+	const cap = captureStdout();
+	const code = await main(["--help"]);
+	expect(code).toBe(0);
+	expect(cap.read()).toContain("usage: websearch");
+});
+
+test("searchWithTavily sends keyless header and maps structuredContent", async () => {
+	let capturedInit: RequestInit | undefined;
+	globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+		capturedInit = init;
+		return Promise.resolve(new Response(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: {
+					structuredContent: {
+						answer: "synthesized",
+						results: [
+							{ url: "https://t.com", title: "T", content: "  chunk   one  ", raw_content: null },
+							{ url: "https://raw.com", title: "R", content: "c", raw_content: "FULL PAGE TEXT" },
+						],
+					},
+				},
+			}),
+			{ status: 200, headers: { "Content-Type": "application/json" } },
+		));
+	}) as unknown as typeof globalThis.fetch;
+
+	const res = await searchWithTavily("bun runtime", {
+		numResults: 3,
+		recencyFilter: "week",
+		domainFilter: ["tavily.com", "-reddit.com"],
+		includeContent: true,
+	});
+
+	const body = JSON.parse(String(capturedInit?.body));
+	expect(capturedInit?.headers).toMatchObject({ "X-Tavily-Access-Mode": "keyless" });
+	expect(body.params.name).toBe("tavily_search");
+	expect(body.params.arguments).toEqual({
+		query: "bun runtime",
+		max_results: 3,
+		time_range: "week",
+		include_domains: ["tavily.com"],
+		exclude_domains: ["reddit.com"],
+		include_raw_content: true,
+	});
+	expect(res.answer).toBe("synthesized");
+	expect(res.results).toEqual([
+		{ title: "T", url: "https://t.com", snippet: "chunk one" },
+		{ title: "R", url: "https://raw.com", snippet: "c" },
+	]);
+	expect(res.inlineContent).toEqual([
+		{ url: "https://raw.com", title: "R", content: "FULL PAGE TEXT", error: null },
+	]);
+});
+
+test("searchWithTavily parses SSE data line and builds answer from content", async () => {
+	globalThis.fetch = (() => Promise.resolve(new Response(
+		"event: message\r\ndata: " +
+		JSON.stringify({
+			jsonrpc: "2.0",
+			id: 1,
+			result: {
+				structuredContent: {
+					answer: null,
+					results: [{ url: "https://s.com", title: "S", content: "some content", raw_content: null }],
+				},
+			},
+		}) + "\r\n\r\n",
+		{ status: 200, headers: { "Content-Type": "text/event-stream" } },
+	))) as unknown as typeof globalThis.fetch;
+
+	const res = await searchWithTavily("hello");
+	expect(res.results[0]).toEqual({ title: "S", url: "https://s.com", snippet: "some content" });
+	expect(res.answer).toContain("some content");
+	expect(res.answer).toContain("Source: S (https://s.com)");
+});
+
+test("searchWithTavily surfaces keyless quota envelope as an error", async () => {
+	globalThis.fetch = (() => Promise.resolve(new Response(
+		JSON.stringify({
+			jsonrpc: "2.0",
+			id: 1,
+			result: {
+				content: [{ type: "text", text: JSON.stringify({ code: "monthly_cap_reached", message: "You reached the monthly keyless Tavily limit." }) }],
+				structuredContent: { code: "monthly_cap_reached", message: "You reached the monthly keyless Tavily limit." },
+			},
+		}),
+		{ status: 200, headers: { "Content-Type": "application/json" } },
+	))) as unknown as typeof globalThis.fetch;
+
+	await expect(searchWithTavily("hello")).rejects.toThrow("Tavily keyless error: You reached the monthly keyless Tavily limit.");
+});
+
+test("searchWithTavily surfaces tool isError as thrown error", async () => {
+	globalThis.fetch = (() => Promise.resolve(new Response(
+		JSON.stringify({
+			jsonrpc: "2.0",
+			id: 1,
+			result: { content: [{ type: "text", text: "Not found: Unknown tool: 'nope'" }], isError: true },
+		}),
+		{ status: 200, headers: { "Content-Type": "application/json" } },
+	))) as unknown as typeof globalThis.fetch;
+
+	await expect(searchWithTavily("hello")).rejects.toThrow("Not found: Unknown tool: 'nope'");
 });

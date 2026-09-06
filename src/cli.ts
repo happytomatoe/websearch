@@ -1,11 +1,13 @@
 import { searchWithExa } from "./exa.ts";
 import { searchWithParallel } from "./parallel.ts";
+import { searchWithTavily } from "./tavily.ts";
 import { renderCli, type CliOptions, type CliResult, type ProviderEntry } from "./render.ts";
 import type { SearchOptions, SearchResponse } from "./types.ts";
+import skillDoc from "./skill.md" with { type: "text" };
 
 const USAGE = `usage: websearch <query> [options]
 
-Searches the web via the keyless Exa and Parallel MCP servers (both, in parallel).
+Searches the web via the keyless Exa, Parallel, and Tavily MCP servers (all three, in parallel).
 
 Options:
   -n, --num-results <n>                number of results per provider (default: 5)
@@ -28,6 +30,12 @@ interface Parsed {
 
 class UsageError extends Error {}
 
+class EarlyExitError extends Error {
+	constructor(readonly output: string, readonly exitCode: number) {
+		super(output);
+	}
+}
+
 function parseArgs(argv: string[]): Parsed {
 	let numResults = 5;
 	let recency: CliOptions["recency"];
@@ -40,9 +48,11 @@ function parseArgs(argv: string[]): Parsed {
 	let i = 0;
 	while (i < argv.length) {
 		const arg = argv[i];
+		if (arg === "skill") {
+			throw new EarlyExitError(skillDoc, 0);
+		}
 		if (arg === "-h" || arg === "--help") {
-			console.log(USAGE);
-			process.exit(0);
+			throw new EarlyExitError(USAGE, 0);
 		}
 		if (arg === "-n" || arg === "--num-results") {
 			const n = Number(argv[i + 1]);
@@ -131,9 +141,10 @@ function buildOptions(parsed: Parsed): SearchOptions {
 
 async function searchAll(parsed: Parsed): Promise<CliResult> {
 	const opts = buildOptions(parsed);
-	const [exaRes, parallelRes] = await Promise.allSettled([
+	const [exaRes, parallelRes, tavilyRes] = await Promise.allSettled([
 		searchWithExa(parsed.query, opts),
 		searchWithParallel(parsed.query, opts),
+		searchWithTavily(parsed.query, opts),
 	]);
 
 	const unwrap = (outcome: PromiseSettledResult<SearchResponse | null>, label: string): ProviderEntry => {
@@ -142,7 +153,7 @@ async function searchAll(parsed: Parsed): Promise<CliResult> {
 		return { response: outcome.value, error: null };
 	};
 
-	return { exa: unwrap(exaRes, "Exa"), parallel: unwrap(parallelRes, "Parallel") };
+	return { exa: unwrap(exaRes, "Exa"), parallel: unwrap(parallelRes, "Parallel"), tavily: unwrap(tavilyRes, "Tavily") };
 }
 
 function messageOf(err: unknown): string {
@@ -154,6 +165,10 @@ export async function main(argv: string[]): Promise<number> {
 	try {
 		parsed = parseArgs(argv);
 	} catch (err) {
+		if (err instanceof EarlyExitError) {
+			process.stdout.write(err.output.endsWith("\n") ? err.output : err.output + "\n");
+			return err.exitCode;
+		}
 		if (err instanceof UsageError) {
 			process.stderr.write(`error: ${err.message}\n\n${USAGE}`);
 			return 2;

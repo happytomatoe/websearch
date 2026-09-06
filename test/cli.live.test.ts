@@ -5,7 +5,7 @@ import { test, expect } from "bun:test";
 const live = !!process.env.LIVE;
 
 test.skipIf(!live)(
-	"live CLI run shows ## Exa and ## Parallel sections",
+	"live CLI run shows ## Exa, ## Parallel, and ## Tavily sections",
 	async () => {
 		const proc = Bun.spawn(["bun", "run", "src/cli.ts", "rust async"], {
 			stdout: "pipe",
@@ -21,8 +21,12 @@ test.skipIf(!live)(
 		expect(stderr).toBe("");
 		expect(stdout).toMatch(/^## Exa$/m);
 		expect(stdout).toMatch(/^## Parallel$/m);
+		// Tavily's keyless budget is shared per IP; when it is spent the provider
+		// is reported under "## Provider errors" instead of its own section.
+		const hasTavilySection = /^## Tavily$/m.test(stdout);
+		const hasTavilyError = /^- \*\*Tavily:\*\*/m.test(stdout);
+		expect(hasTavilySection || hasTavilyError).toBe(true);
 		expect(stdout.indexOf("## Exa")).toBeLessThan(stdout.indexOf("## Parallel"));
-		expect(stdout).toContain("\n\n\n## Parallel");
 		expect(stdout).toContain("**Sources:**");
 	},
 	120_000,
