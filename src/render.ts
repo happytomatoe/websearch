@@ -15,7 +15,7 @@ export interface ProviderEntry {
 
 export type CliResult = Record<ProviderName, ProviderEntry>;
 
-const PROVIDER_LABELS: Record<ProviderName, string> = { exa: "Exa", parallel: "Parallel", tavily: "Tavily" };
+const PROVIDER_LABELS = { exa: "Exa", parallel: "Parallel", tavily: "Tavily" } satisfies Record<ProviderName, string>;
 const PROVIDER_ORDER: ProviderName[] = ["exa", "parallel", "tavily"];
 
 function formatSourceList(results: SearchResult[]): string {

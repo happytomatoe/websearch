@@ -7,18 +7,27 @@ type FetchCall = { url: string; headers: Record<string, string>; body: any };
 
 const calls: FetchCall[] = [];
 
+interface ExaJsonRpcResponse {
+	id?: number;
+	result?: { content?: Array<{ type?: string; text?: string }>; isError?: boolean };
+	error?: { code?: number; message?: string };
+}
+
 function mockFetchResponse(handler: (call: FetchCall) => Response): void {
-	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+	const mock = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 		const url = String(input);
-		const headers = Object.fromEntries(new Headers((init as RequestInit)?.headers).entries());
-		const body = JSON.parse((init as RequestInit)?.body as string);
+		const headers = Object.fromEntries(new Headers(init?.headers).entries());
+		// SAFETY: JSON-RPC body is always a JSON string; init.body typed as BodyInit by fetch
+		const body = JSON.parse(init?.body as string);
 		const call = { url, headers, body };
 		calls.push(call);
 		return handler(call);
-	}) as unknown as typeof globalThis.fetch;
+	};
+	// SAFETY: test mock intentionally narrower than Bun's fetch (no preconnect); cast to satisfy assignment
+	globalThis.fetch = mock as typeof globalThis.fetch;
 }
 
-function sseEvent(payload: Record<string, unknown>): Response {
+function sseEvent(payload: ExaJsonRpcResponse): Response {
 	return new Response(`data: ${JSON.stringify(payload)}\n\n`, {
 		status: 200,
 		headers: { "Content-Type": "text/event-stream" },
@@ -90,7 +99,10 @@ test("falls back from advanced to basic when advanced tool errors", async () => 
 });
 
 test("reports 429 rate limit on basic search", async () => {
-	globalThis.fetch = (async () => new Response("rate limited", { status: 429 })) as unknown as typeof globalThis.fetch;
+	const fetch429 = async (_input?: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+		new Response("rate limited", { status: 429 });
+	// SAFETY: test mock intentionally narrower than Bun's fetch (no preconnect); cast to satisfy assignment
+	globalThis.fetch = fetch429 as typeof globalThis.fetch;
 	const err = await searchWithExa("q").then(() => null).catch(e => e);
 	expect(err?.message).toContain("429");
 });

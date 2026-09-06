@@ -5,16 +5,32 @@ const realFetch = globalThis.fetch;
 
 type FetchCall = { url: string; headers: Record<string, string>; body: any };
 
-function mockFetchOnce(fn: (call: FetchCall) => Response): void {
-	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-		const url = String(input);
-		const headers = Object.fromEntries(new Headers((init as RequestInit)?.headers).entries());
-		const body = JSON.parse((init as RequestInit)?.body as string);
-		return fn({ url, headers, body });
-	}) as unknown as typeof globalThis.fetch;
+interface JsonRpcResult {
+	content?: Array<{ type?: string; text?: string }>;
+	structuredContent?: unknown;
+	isError?: boolean;
 }
 
-function ok(response: Record<string, unknown>): Response {
+interface JsonRpcResponse {
+	jsonrpc?: string;
+	id?: number;
+	result?: JsonRpcResult;
+	error?: { code?: number; message?: string };
+}
+
+function mockFetchOnce(fn: (call: FetchCall) => Response): void {
+	const mock = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+		const url = String(input);
+		const headers = Object.fromEntries(new Headers(init?.headers).entries());
+		// SAFETY: JSON-RPC body is always a JSON string; init.body typed as BodyInit by fetch
+		const body = JSON.parse(init?.body as string);
+		return fn({ url, headers, body });
+	};
+	// SAFETY: test mock intentionally narrower than Bun's fetch (no preconnect); cast to satisfy assignment
+	globalThis.fetch = mock as typeof globalThis.fetch;
+}
+
+function ok(response: JsonRpcResponse): Response {
 	return new Response(JSON.stringify(response), { status: 200, headers: { "Content-Type": "application/json" } });
 }
 
@@ -75,7 +91,10 @@ test("surfaces result.isError message", async () => {
 });
 
 test("reports rate limit on 429", async () => {
-	globalThis.fetch = (async () => new Response("slow down", { status: 429 })) as unknown as typeof globalThis.fetch;
+	const fetch403 = async (_input?: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+		new Response("slow down", { status: 429 });
+	// SAFETY: test mock intentionally narrower than Bun's fetch (no preconnect); cast to satisfy assignment
+	globalThis.fetch = fetch403 as typeof globalThis.fetch;
 	const err = await searchWithParallel("q").then(() => null).catch(e => e);
 	expect(err?.message).toContain("429");
 });

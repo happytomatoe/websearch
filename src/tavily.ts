@@ -1,3 +1,4 @@
+import { isObject } from "./guards.ts";
 import type { ExtractedContent, SearchOptions, SearchResponse, SearchResult } from "./types.ts";
 
 const TAVILY_MCP_URL = "https://mcp.tavily.com/mcp/";
@@ -30,7 +31,16 @@ function requestSignal(signal?: AbortSignal): AbortSignal {
 	return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
-function tavilySearchArgs(query: string, options: SearchOptions): Record<string, unknown> {
+interface TavilySearchArgs {
+	query: string;
+	max_results: number;
+	time_range?: string;
+	include_domains?: string[];
+	exclude_domains?: string[];
+	include_raw_content?: boolean;
+}
+
+function tavilySearchArgs(query: string, options: SearchOptions): TavilySearchArgs {
 	const domains = options.domainFilter ?? [];
 	const includeDomains = domains
 		.filter(d => !d.startsWith("-") && d.trim().length > 0)
@@ -40,14 +50,14 @@ function tavilySearchArgs(query: string, options: SearchOptions): Record<string,
 		.map(d => d.slice(1).trim())
 		.filter(Boolean);
 
-	const args: Record<string, unknown> = {
+	const args: TavilySearchArgs = {
 		query,
 		max_results: options.numResults ?? 5,
-		...(options.recencyFilter ? { time_range: options.recencyFilter } : {}),
-		...(includeDomains.length ? { include_domains: includeDomains } : {}),
-		...(excludeDomains.length ? { exclude_domains: excludeDomains } : {}),
-		...(options.includeContent ? { include_raw_content: true } : {}),
 	};
+	if (options.recencyFilter) args.time_range = options.recencyFilter;
+	if (includeDomains.length) args.include_domains = includeDomains;
+	if (excludeDomains.length) args.exclude_domains = excludeDomains;
+	if (options.includeContent) args.include_raw_content = true;
 	return args;
 }
 
@@ -59,12 +69,17 @@ function tavilySearchArgs(query: string, options: SearchOptions): Record<string,
 function extractRpcPayload(body: string): TavilyMcpRpcResponse {
 	const dataLine = body.split("\n").find(line => line.startsWith("data:"));
 	if (dataLine) {
-		try {
-			return JSON.parse(dataLine.slice("data:".length).trim()) as TavilyMcpRpcResponse;
-		} catch {
-			// Fall through to whole-body JSON parsing.
+		const payload = dataLine.slice("data:".length).trim();
+		if (payload) {
+			try {
+				// SAFETY: external MCP SSE payload; JSON.parse gives unknown, shape validated by TavilyMcpRpcResponse fields
+				return JSON.parse(payload) as TavilyMcpRpcResponse;
+			} catch {
+				// Fall through to whole-body JSON parsing.
+			}
 		}
 	}
+	// SAFETY: external MCP payload; JSON.parse gives unknown, shape validated by TavilyMcpRpcResponse fields
 	return JSON.parse(body) as TavilyMcpRpcResponse;
 }
 
@@ -76,7 +91,7 @@ function assertSearchPayload(payload: TavilySearchPayload & { code?: string; mes
 	return payload;
 }
 
-async function callTavilyMcp(args: Record<string, unknown>, signal?: AbortSignal): Promise<TavilySearchPayload> {
+async function callTavilyMcp(args: TavilySearchArgs, signal?: AbortSignal): Promise<TavilySearchPayload> {
 	const response = await fetch(TAVILY_MCP_URL, {
 		method: "POST",
 		headers: {
@@ -107,28 +122,30 @@ async function callTavilyMcp(args: Record<string, unknown>, signal?: AbortSignal
 	const data = extractRpcPayload(await response.text());
 
 	if (data.error) {
-		const code = typeof data.error.code === "number" ? ` ${data.error.code}` : "";
+		const code = data.error.code !== undefined ? ` ${data.error.code}` : "";
 		throw new Error(`Tavily MCP error${code}: ${data.error.message || "Unknown error"}`);
 	}
 
 	if (data.result?.isError) {
 		const message = data.result.content
-			?.find(item => item.type === "text" && typeof item.text === "string")
+			?.find(item => item.type === "text" && item.text !== undefined)
 			?.text?.trim();
 		throw new Error(message || "Tavily MCP returned an error");
 	}
 
 	const structured = data.result?.structuredContent;
-	if (structured && typeof structured === "object") {
+	if (isObject(structured)) {
+		// SAFETY: external MCP structuredContent; JSON source is unknown, assertSearchPayload validates the envelope
 		return assertSearchPayload(structured as TavilySearchPayload & { code?: string; message?: string });
 	}
 
 	const text = data.result?.content
-		?.find(item => item.type === "text" && typeof item.text === "string" && item.text.trim().length > 0)
+		?.find(item => item.type === "text" && item.text !== undefined && item.text.trim().length > 0)
 		?.text;
 
 	if (text) {
 		try {
+			// SAFETY: external MCP text payload; JSON.parse gives unknown, assertSearchPayload validates the envelope
 			return assertSearchPayload(JSON.parse(text) as TavilySearchPayload & { code?: string; message?: string });
 		} catch (err) {
 			if (err instanceof Error && err.message.startsWith("Tavily keyless error:")) throw err;
@@ -169,11 +186,11 @@ function buildAnswerFromContent(results: TavilyResult[] | undefined): string {
 function mapInlineContent(results: TavilyResult[] | undefined): ExtractedContent[] {
 	if (!Array.isArray(results)) return [];
 	return results
-		.filter(r => !!r?.url && typeof r.raw_content === "string" && r.raw_content.length > 0)
+		.filter((r): r is TavilyResult & { raw_content: string } => !!r?.url && r.raw_content !== null && r.raw_content.length > 0)
 		.map(r => ({
 			url: r.url,
 			title: r.title || "",
-			content: r.raw_content as string,
+			content: r.raw_content,
 			error: null,
 		}));
 }
@@ -187,7 +204,7 @@ export async function searchWithTavily(query: string, options: SearchOptions = {
 
 	const results = mapResults(payload.results);
 	const response: SearchResponse = {
-		answer: typeof payload.answer === "string" && payload.answer.trim().length > 0
+		answer: payload.answer && payload.answer.trim().length > 0
 			? payload.answer
 			: buildAnswerFromContent(payload.results),
 		results,

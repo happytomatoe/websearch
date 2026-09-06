@@ -6,12 +6,17 @@ import { searchWithTavily } from "../src/tavily.ts";
 const realFetch = globalThis.fetch;
 const realStdoutWrite = process.stdout.write;
 
-function captureStdout(): { read: () => string } {
+interface StdoutCapture {
+	read: () => string;
+}
+
+function captureStdout(): StdoutCapture {
 	let buf = "";
+	// SAFETY: test doubles the stream; the mock keeps write's (chunk: string) => boolean call shape
 	process.stdout.write = ((chunk: string) => {
 		buf += String(chunk);
-		return 0;
-	}) as unknown as typeof process.stdout.write;
+		return true;
+	}) as typeof process.stdout.write;
 	return { read: () => buf };
 }
 
@@ -107,6 +112,7 @@ test("main runs both providers and writes per-provider JSON (mocked fetch)", asy
 		},
 	});
 
+	// SAFETY: test doubles the network boundary; each Response is fully constructed and the mock matches fetch's callable shape
 	globalThis.fetch = ((input: string | URL | Request) => {
 		const url = String(input);
 		if (url.includes("exa")) {
@@ -125,7 +131,7 @@ test("main runs both providers and writes per-provider JSON (mocked fetch)", asy
 			status: 200,
 			headers: { "Content-Type": "application/json" },
 		}));
-	}) as unknown as typeof globalThis.fetch;
+	}) as typeof globalThis.fetch;
 
 	const cap = captureStdout();
 	const code = await main(["langchain", "--json"]);
@@ -140,6 +146,7 @@ test("main runs both providers and writes per-provider JSON (mocked fetch)", asy
 });
 
 test("main reports provider errors per provider and still renders the other", async () => {
+	// SAFETY: test doubles the network boundary; each Response is fully constructed and the mock matches fetch's callable shape
 	globalThis.fetch = ((input: string | URL | Request) => {
 		if (String(input).includes("exa")) {
 			return Promise.resolve(new Response("slow down", { status: 429 }));
@@ -148,7 +155,7 @@ test("main reports provider errors per provider and still renders the other", as
 			JSON.stringify({ jsonrpc: "2.0", id: 1, result: { structuredContent: { results: [] } } }),
 			{ status: 200, headers: { "Content-Type": "application/json" } },
 		));
-	}) as unknown as typeof globalThis.fetch;
+	}) as typeof globalThis.fetch;
 
 	const cap = captureStdout();
 	const code = await main(["langchain"]);
@@ -177,6 +184,7 @@ test("--help returns 0 through main without process.exit", async () => {
 
 test("searchWithTavily sends keyless header and maps structuredContent", async () => {
 	let capturedInit: RequestInit | undefined;
+	// SAFETY: test doubles the network boundary; each Response is fully constructed and the mock matches fetch's callable shape
 	globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
 		capturedInit = init;
 		return Promise.resolve(new Response(
@@ -195,7 +203,7 @@ test("searchWithTavily sends keyless header and maps structuredContent", async (
 			}),
 			{ status: 200, headers: { "Content-Type": "application/json" } },
 		));
-	}) as unknown as typeof globalThis.fetch;
+	}) as typeof globalThis.fetch;
 
 	const res = await searchWithTavily("bun runtime", {
 		numResults: 3,
@@ -226,7 +234,8 @@ test("searchWithTavily sends keyless header and maps structuredContent", async (
 });
 
 test("searchWithTavily parses SSE data line and builds answer from content", async () => {
-	globalThis.fetch = (() => Promise.resolve(new Response(
+	// SAFETY: test doubles the network boundary; each Response is fully constructed and the mock matches fetch's callable shape
+	globalThis.fetch = ((_input: string | URL | Request) => Promise.resolve(new Response(
 		"event: message\r\ndata: " +
 		JSON.stringify({
 			jsonrpc: "2.0",
@@ -239,7 +248,7 @@ test("searchWithTavily parses SSE data line and builds answer from content", asy
 			},
 		}) + "\r\n\r\n",
 		{ status: 200, headers: { "Content-Type": "text/event-stream" } },
-	))) as unknown as typeof globalThis.fetch;
+	))) as typeof globalThis.fetch;
 
 	const res = await searchWithTavily("hello");
 	expect(res.results[0]).toEqual({ title: "S", url: "https://s.com", snippet: "some content" });
@@ -248,7 +257,8 @@ test("searchWithTavily parses SSE data line and builds answer from content", asy
 });
 
 test("searchWithTavily surfaces keyless quota envelope as an error", async () => {
-	globalThis.fetch = (() => Promise.resolve(new Response(
+	// SAFETY: test doubles the network boundary; each Response is fully constructed and the mock matches fetch's callable shape
+	globalThis.fetch = ((_input: string | URL | Request) => Promise.resolve(new Response(
 		JSON.stringify({
 			jsonrpc: "2.0",
 			id: 1,
@@ -258,20 +268,21 @@ test("searchWithTavily surfaces keyless quota envelope as an error", async () =>
 			},
 		}),
 		{ status: 200, headers: { "Content-Type": "application/json" } },
-	))) as unknown as typeof globalThis.fetch;
+	))) as typeof globalThis.fetch;
 
 	await expect(searchWithTavily("hello")).rejects.toThrow("Tavily keyless error: You reached the monthly keyless Tavily limit.");
 });
 
 test("searchWithTavily surfaces tool isError as thrown error", async () => {
-	globalThis.fetch = (() => Promise.resolve(new Response(
+	// SAFETY: test doubles the network boundary; each Response is fully constructed and the mock matches fetch's callable shape
+	globalThis.fetch = ((_input: string | URL | Request) => Promise.resolve(new Response(
 		JSON.stringify({
 			jsonrpc: "2.0",
 			id: 1,
 			result: { content: [{ type: "text", text: "Not found: Unknown tool: 'nope'" }], isError: true },
 		}),
 		{ status: 200, headers: { "Content-Type": "application/json" } },
-	))) as unknown as typeof globalThis.fetch;
+	))) as typeof globalThis.fetch;
 
 	await expect(searchWithTavily("hello")).rejects.toThrow("Not found: Unknown tool: 'nope'");
 });

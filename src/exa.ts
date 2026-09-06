@@ -1,4 +1,4 @@
-import type { ExtractedContent, SearchOptions, SearchResponse, SearchResult } from "./types.ts";
+import type { ExtractedContent, RecencyFilter, SearchOptions, SearchResponse, SearchResult } from "./types.ts";
 
 const EXA_MCP_URL = "https://mcp.exa.ai/mcp";
 const EXA_MCP_ADVANCED_TOOL = "web_search_advanced_exa";
@@ -31,20 +31,21 @@ function requestSignal(signal?: AbortSignal): AbortSignal {
 	return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
-function recencyToStartDate(filter: string): string {
+function recencyToStartDate(filter: RecencyFilter): string {
 	const now = new Date();
-	const offsets: Record<string, number> = {
+	const offsets = {
 		day: 1,
 		week: 7,
 		month: 30,
 		year: 365,
-	};
+	} satisfies Record<string, number>;
 	const days = offsets[filter] ?? 0;
 	return new Date(now.getTime() - days * 86400000).toISOString();
 }
 
-function mapDomainFilter(domainFilter: string[] | undefined): { includeDomains?: string[]; excludeDomains?: string[] } {
-	if (!domainFilter?.length) return {};
+function mapDomainFilter(domainFilter: string[] | undefined): DomainFilter {
+	const result: DomainFilter = {};
+	if (!domainFilter?.length) return result;
 	const includeDomains = domainFilter
 		.filter(d => !d.startsWith("-") && d.trim().length > 0)
 		.map(d => d.trim());
@@ -52,26 +53,42 @@ function mapDomainFilter(domainFilter: string[] | undefined): { includeDomains?:
 		.filter(d => d.startsWith("-"))
 		.map(d => d.slice(1).trim())
 		.filter(Boolean);
-	return {
-		...(includeDomains.length ? { includeDomains } : {}),
-		...(excludeDomains.length ? { excludeDomains } : {}),
-	};
+	if (includeDomains.length) result.includeDomains = includeDomains;
+	if (excludeDomains.length) result.excludeDomains = excludeDomains;
+	return result;
 }
 
-function exaSearchArgs(query: string, options: ExaSearchOptions): Record<string, unknown> {
+interface ExaSearchArgs {
+	query: string;
+	numResults: number;
+	type?: string;
+	includeDomains?: string[];
+	excludeDomains?: string[];
+	startPublishedDate?: string;
+	enableHighlights?: boolean;
+	textMaxCharacters?: number;
+}
+
+interface DomainFilter {
+	includeDomains?: string[];
+	excludeDomains?: string[];
+}
+
+function exaSearchArgs(query: string, options: ExaSearchOptions): ExaSearchArgs {
 	const startDate = options.recencyFilter ? recencyToStartDate(options.recencyFilter) : null;
-	return {
+	const args: ExaSearchArgs = {
 		query,
 		type: "auto",
 		numResults: options.numResults ?? 5,
 		...mapDomainFilter(options.domainFilter),
-		...(startDate ? { startPublishedDate: startDate } : {}),
 	};
+	if (startDate) args.startPublishedDate = startDate;
+	return args;
 }
 
-function normalizeHighlights(value: unknown): string[] {
-	if (!Array.isArray(value)) return [];
-	return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+function normalizeHighlights(cause: unknown): string[] {
+	if (!Array.isArray(cause)) return [];
+	return cause.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
 function buildAnswerFromSearchResults(results: ExaSearchResult[] | undefined): string {
@@ -83,7 +100,7 @@ function buildAnswerFromSearchResults(results: ExaSearchResult[] | undefined): s
 		const highlights = normalizeHighlights(item.highlights);
 		const content = highlights.length > 0
 			? highlights.join(" ")
-			: typeof item.text === "string" ? item.text.trim().slice(0, 1000) : "";
+			: item.text?.trim().slice(0, 1000) ?? "";
 		if (!content) continue;
 		const sourceTitle = item.title || `Source ${i + 1}`;
 		parts.push(`${content}\n\nSource: ${sourceTitle} (${item.url})`);
@@ -134,7 +151,7 @@ function toSearchResponse(
  */
 async function callExaMcp(
 	toolName: string,
-	args: Record<string, unknown>,
+	args: ExaSearchArgs,
 	signal?: AbortSignal,
 ): Promise<string> {
 	const response = await fetch(`${EXA_MCP_URL}?tools=${toolName}`, {
@@ -174,6 +191,7 @@ async function callExaMcp(
 		const payload = line.slice(5).trim();
 		if (!payload) continue;
 		try {
+			// SAFETY: external MCP payload; JSON.parse gives unknown, shape validated by ExaMcpRpcResponse fields below
 			const candidate = JSON.parse(payload) as ExaMcpRpcResponse;
 			if (candidate?.result || candidate?.error) {
 				parsed = candidate;
@@ -186,6 +204,7 @@ async function callExaMcp(
 
 	if (!parsed) {
 		try {
+			// SAFETY: external MCP payload; JSON.parse gives unknown, shape validated by ExaMcpRpcResponse fields below
 			const candidate = JSON.parse(body) as ExaMcpRpcResponse;
 			if (candidate?.result || candidate?.error) {
 				parsed = candidate;
@@ -200,20 +219,20 @@ async function callExaMcp(
 	}
 
 	if (parsed.error) {
-		const code = typeof parsed.error.code === "number" ? ` ${parsed.error.code}` : "";
+		const code = parsed.error.code !== undefined ? ` ${parsed.error.code}` : "";
 		const message = parsed.error.message || "Unknown error";
 		throw new Error(`Exa MCP error${code}: ${message}`);
 	}
 
 	if (parsed.result?.isError) {
 		const message = parsed.result.content
-			?.find(item => item.type === "text" && typeof item.text === "string")
+			?.find(item => item.type === "text" && item.text !== undefined)
 			?.text?.trim();
 		throw new Error(message || "Exa MCP returned an error");
 	}
 
 	const text = parsed.result?.content
-		?.find(item => item.type === "text" && typeof item.text === "string" && item.text.trim().length > 0)
+		?.find(item => item.type === "text" && item.text !== undefined && item.text.trim().length > 0)
 		?.text;
 
 	if (!text) {
@@ -224,6 +243,7 @@ async function callExaMcp(
 }
 function parseJsonMcpResults(text: string): ExaSearchResult[] | null {
 	try {
+		// SAFETY: external MCP payload; JSON.parse gives unknown, length check below validates the shape
 		const results = (JSON.parse(text) as { results?: ExaSearchResult[] }).results;
 		return Array.isArray(results) && results.length > 0 ? results : null;
 	} catch {
@@ -286,7 +306,7 @@ function isAbortMessage(message: string): boolean {
  */
 async function searchWithExaMcpTool(
 	tool: string,
-	args: Record<string, unknown>,
+	args: ExaSearchArgs,
 	options: ExaSearchOptions,
 ): Promise<SearchResponse | null> {
 	const text = await callExaMcp(tool, args, options.signal);
@@ -317,7 +337,7 @@ async function searchWithExaMcpTool(
 async function searchWithFilteredExaMcp(
 	query: string,
 	options: ExaSearchOptions,
-	basicArgs: Record<string, unknown>,
+	basicArgs: ExaSearchArgs,
 ): Promise<SearchResponse | null> {
 	try {
 		return await searchWithExaMcpTool(EXA_MCP_ADVANCED_TOOL, {

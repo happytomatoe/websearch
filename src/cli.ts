@@ -156,8 +156,8 @@ async function searchAll(parsed: Parsed): Promise<CliResult> {
 	return { exa: unwrap(exaRes, "Exa"), parallel: unwrap(parallelRes, "Parallel"), tavily: unwrap(tavilyRes, "Tavily") };
 }
 
-function messageOf(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
+function messageOf(cause: unknown): string {
+	return cause instanceof Error ? cause.message : String(cause);
 }
 
 export async function main(argv: string[]): Promise<number> {

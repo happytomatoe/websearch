@@ -28,10 +28,3 @@ export interface SearchOptions {
 }
 
 export type ProviderName = "exa" | "parallel" | "tavily";
-
-/** Result per provider for `both` mode; errors are captured per provider. */
-export interface ProviderOutcome {
-	provider: ProviderName;
-	response: SearchResponse | null;
-	error: string | null;
-}

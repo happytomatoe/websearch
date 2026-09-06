@@ -1,3 +1,4 @@
+import { isObject } from "./guards.ts";
 import type { ExtractedContent, SearchOptions, SearchResponse, SearchResult } from "./types.ts";
 
 const PARALLEL_MCP_URL = "https://search.parallel.ai/mcp";
@@ -23,9 +24,9 @@ function requestSignal(signal?: AbortSignal): AbortSignal {
 	return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
-function normalizeExcerpts(value: unknown): string[] {
-	if (!Array.isArray(value)) return [];
-	return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+function normalizeExcerpts(cause: unknown): string[] {
+	if (!Array.isArray(cause)) return [];
+	return cause.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
 function mapSearchResults(results: McpResult[] | undefined): SearchResult[] {
@@ -74,7 +75,12 @@ function mapInlineContent(results: McpResult[] | undefined): ExtractedContent[] 
  * payload. Prefers `structuredContent` (JSON), falling back to `content[].text`,
  * which may itself be JSON or `Title:`/`URL:`/`Text:` blocks.
  */
-async function callParallelMcp(args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
+interface ParallelMcpArgs {
+	objective: string;
+	search_queries: string[];
+}
+
+async function callParallelMcp(args: ParallelMcpArgs, signal?: AbortSignal): Promise<string> {
 	const body = {
 		jsonrpc: "2.0",
 		id: 1,
@@ -103,27 +109,28 @@ async function callParallelMcp(args: Record<string, unknown>, signal?: AbortSign
 		throw new Error(`Parallel MCP error ${response.status}: ${errorText.slice(0, 300)}`);
 	}
 
+	// SAFETY: external MCP payload; response.json() gives unknown, shape validated by ParallelMcpRpcResponse fields below
 	const data = await response.json() as ParallelMcpRpcResponse;
 
 	if (data.error) {
-		const code = typeof data.error.code === "number" ? ` ${data.error.code}` : "";
+		const code = data.error.code !== undefined ? ` ${data.error.code}` : "";
 		throw new Error(`Parallel MCP error${code}: ${data.error.message || "Unknown error"}`);
 	}
 
 	if (data.result?.isError) {
 		const message = data.result.content
-			?.find(item => item.type === "text" && typeof item.text === "string")
+			?.find(item => item.type === "text" && item.text !== undefined)
 			?.text?.trim();
 		throw new Error(message || "Parallel MCP returned an error");
 	}
 
 	const structured = data.result?.structuredContent;
-	if (structured && typeof structured === "object") {
+	if (isObject(structured)) {
 		return JSON.stringify(structured);
 	}
 
 	const text = data.result?.content
-		?.find(item => item.type === "text" && typeof item.text === "string" && item.text.trim().length > 0)
+		?.find(item => item.type === "text" && item.text !== undefined && item.text.trim().length > 0)
 		?.text;
 
 	if (!text) {
@@ -144,6 +151,7 @@ interface ParallelMcpStructuredContent {
 
 function parseMcpResults(text: string): McpResult[] {
 	try {
+		// SAFETY: external MCP payload; JSON.parse gives unknown, Array.isArray below validates the shape
 		const parsed = JSON.parse(text) as ParallelMcpStructuredContent;
 		if (Array.isArray(parsed.results)) {
 			return parsed.results
