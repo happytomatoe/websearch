@@ -9,7 +9,7 @@ Requires [Bun](https://bun.com) 1.4+.
 ```sh
 bun install
 just build      # compile to dist/websearch
-just install    # symlink dist/websearch → ~/.local/bin/websearch
+just install    # build and copy binary to ~/.local/bin/websearch
 just skill      # symlink src/skill.md → ~/.agent/skills/websearch/SKILL.md
 ```
 

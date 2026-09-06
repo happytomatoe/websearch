@@ -5,10 +5,12 @@ default:
 build:
     bun build src/cli.ts --compile --outfile dist/websearch
 
-# Build and install the binary to ~/.local/bin (symlinked as "websearch")
+# Build and install the binary to ~/.local/bin
 install: build
     mkdir -p ~/.local/bin
-    ln -sf "{{justfile_directory()}}/dist/websearch" ~/.local/bin/websearch
+    rm -f ~/.local/bin/websearch
+    cp "{{justfile_directory()}}/dist/websearch" ~/.local/bin/websearch
+    chmod +x ~/.local/bin/websearch
     echo "Installed websearch → ~/.local/bin/websearch"
 
 # Symlink the agent skill into ~/.agent/skills/websearch/SKILL.md
