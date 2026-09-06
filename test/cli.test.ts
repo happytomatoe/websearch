@@ -257,7 +257,7 @@ test("skill subcommand prints the bundled skill document", async () => {
 	const out = cap.read();
 	expect(out).toContain("# websearch");
 	expect(out).toContain("## How to run");
-	expect(out).toContain("bun run src/cli.ts");
+	expect(out).toContain("websearch \"<query>\"");
 });
 
 test("--help returns 0 through main without process.exit", async () => {

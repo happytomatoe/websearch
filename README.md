@@ -8,14 +8,16 @@ Requires [Bun](https://bun.com) 1.4+.
 
 ```sh
 bun install
-bun build src/cli.ts --compile --outfile dist/websearch   # single static binary
+just build      # compile to dist/websearch
+just install    # symlink dist/websearch → ~/.local/bin/websearch
+just skill      # symlink src/skill.md → ~/.agent/skills/websearch/SKILL.md
 ```
 
-Run from source or from the binary:
+Run from source or from the installed binary:
 
 ```sh
-bun run src/cli.ts --help
-./dist/websearch "bun javascript runtime"
+websearch "bun javascript runtime"     # after just install
+bun run src/cli.ts --help              # from source
 ```
 
 ## Usage
@@ -83,6 +85,9 @@ websearch "vector databases" --json | jq -r '.exa.response.results[].url'
 ```sh
 bun test          # unit tests (mocked fetch, no network)
 bun run typecheck # tsc --noEmit
+just build        # compile binary
+just install      # install binary to ~/.local/bin
+just skill        # install skill to ~/.agent/skills/
 just test-query "bun javascript runtime"   # live CLI smoke test via just
 just e2e         # spawns the CLI and asserts ## Exa / ## Parallel output structure
 ```

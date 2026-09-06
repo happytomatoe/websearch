@@ -20,15 +20,15 @@ Searches the web without API keys by POSTing JSON-RPC `tools/call` requests to t
 
 From the repository root:
 
-    bun run src/cli.ts "<query>"        # human-readable output
-    just test-query "<query>"           # same via the Just recipe
-    dist/websearch "<query>"            # standalone compiled binary
+    just build && just install    # compile binary and symlink to ~/.local/bin
+    websearch "<query>"            # human-readable output (after install)
+    just test-query "<query>"      # live smoke test from source
 
 ## Commands
 
 ### Run a search
 
-    bun run src/cli.ts "<query>" [options]
+    websearch "<query>" [options]
 
 Options:
 
@@ -44,11 +44,11 @@ A positional query runs first, followed by `-q/--query` values in order. Repeat 
 
 **Prefer multiple queries for research.** Good — varied angles, each gets its own synthesized answer:
 
-    bun run src/cli.ts -q "react vs vue performance benchmarks 2026" -q "react vs vue developer experience comparison"
+    websearch -q "react vs vue performance benchmarks 2026" -q "react vs vue developer experience comparison"
 
 Bad — near-duplicate rewordings waste the per-query coverage:
 
-    bun run src/cli.ts -q "react vs vue" -q "react vs vue comparison"
+    websearch -q "react vs vue" -q "react vs vue comparison"
 
 Aim for 2–4 queries that vary phrasing, scope, and angle. Don't exceed a handful — keyless rate limits are shared per IP and queries run sequentially.
 
@@ -62,7 +62,7 @@ Multi-line queries: pass the query as a single quoted argument (newlines are pre
 
 ### Print the skill file
 
-    bun run src/cli.ts skill
+    websearch skill
 
 Writes the bundled skill.md document to stdout (also works in the compiled binary).
 
