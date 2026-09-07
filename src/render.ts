@@ -30,7 +30,7 @@ function sanitizeText(text: string): string {
 }
 
 function formatSourceList(results: SearchResult[]): string {
-	return results.map((r, i) => `${i + 1}. ${sanitizeText(r.title)}\n   ${r.url}`).join("\n\n");
+	return results.map((r, i) => `${i + 1}. ${sanitizeText(r.title)}\n   ${sanitizeText(r.url)}`).join("\n\n");
 }
 
 // Mirrors pi-web-access gemini-search.ts multi-provider sections

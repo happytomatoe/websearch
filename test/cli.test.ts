@@ -87,6 +87,20 @@ test("renderCli emits ## provider sections, merged sources, and errors", () => {
 	expect(sources).not.toContain("2.");
 });
 
+test("renderCli strips control characters from result URLs in Sources", () => {
+	const res = {
+		exa: entry([{ title: "Esc", url: "https://a.com/\u001b[31mred\u001b[0m", snippet: "" }]),
+		parallel: { response: null, error: null },
+		tavily: { response: null, error: null },
+		firecrawl: { response: null, error: null },
+	};
+	const out = renderCli([{ query: "q", providers: res }], baseOptions());
+	const sources = out.slice(out.indexOf("**Sources:**"));
+	const urlLine = sources.split("\n").find(line => line.includes("https://a.com/"));
+	// eslint-disable-next-line no-control-regex -- asserting the sanitizer strips ESC
+	expect(urlLine).not.toMatch(/[\u0000-\u001f\u007f]/);
+});
+
 test("renderCli separates provider sections with two blank lines", () => {
 	const res = {
 		exa: entry([{ title: "A", url: "https://a.com", snippet: "" }]),
