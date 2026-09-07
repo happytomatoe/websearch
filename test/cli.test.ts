@@ -300,6 +300,28 @@ test("skill subcommand prints the bundled skill document", async () => {
 	expect(out).toContain("websearch \"<query>\"");
 });
 
+test("skill with extra arguments runs a search instead of printing the doc", async () => {
+	// SAFETY: test doubles the network boundary; each Response is fully constructed and the mock matches fetch's callable shape
+	globalThis.fetch = ((_input: string | URL | Request) => Promise.resolve(new Response(
+		JSON.stringify({
+			jsonrpc: "2.0",
+			id: 1,
+			result: { structuredContent: { results: [{ url: "https://p.com", title: "P", excerpts: ["pe"] }] } },
+		}),
+		{ status: 200, headers: { "Content-Type": "application/json" } },
+	))) as typeof globalThis.fetch;
+	const cap = captureStdout();
+	const code = await main(["skill", "docs"]);
+	expect(code).toBe(0);
+	const out = cap.read();
+	expect(out).not.toContain("# websearch");
+	expect(out).toContain("**Sources:**");
+});
+
+test("--domain rejects a following option token as its value", async () => {
+	expect(await main(["q", "--domain", "--json"])).toBe(2);
+});
+
 test("--help returns 0 through main without process.exit", async () => {
 	const cap = captureStdout();
 	const code = await main(["--help"]);

@@ -55,7 +55,7 @@ function parseArgs(argv: string[]): Parsed {
 	let i = 0;
 	while (i < argv.length) {
 		const arg = argv[i];
-		if (arg === "skill" && i === 0) {
+		if (arg === "skill" && i === 0 && argv.length === 1) {
 			throw new EarlyExitError(skillDoc, 0);
 		}
 		if (arg === "-h" || arg === "--help") {
@@ -113,8 +113,9 @@ function parseArgs(argv: string[]): Parsed {
 		}
 		if (arg === "--domain") {
 			const value = argv[i + 1];
-			// A leading "-" is the documented exclude prefix (e.g. -reddit.com), not an option.
-			if (!value || value === "-") throw new UsageError(`--domain requires a value`);
+			// A leading "-" is the documented exclude prefix (e.g. -reddit.com), not an option;
+			// a "--" token is always a mispositioned option (e.g. --domain --json).
+			if (!value || value === "-" || value.startsWith("--")) throw new UsageError(`--domain requires a value`);
 			domains.push(value);
 			i += 2;
 			continue;
