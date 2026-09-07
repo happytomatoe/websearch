@@ -24,6 +24,7 @@ export interface SearchOptions {
 	recencyFilter?: RecencyFilter;
 	domainFilter?: string[];
 	includeContent?: boolean;
+	timeoutMs?: number;
 	signal?: AbortSignal;
 }
 

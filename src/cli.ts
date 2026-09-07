@@ -2,13 +2,15 @@ import { searchWithExa } from "./exa.ts";
 import { searchWithFirecrawl } from "./firecrawl.ts";
 import { searchWithParallel } from "./parallel.ts";
 import { searchWithTavily } from "./tavily.ts";
+import { loadConfig } from "./config.ts";
 import { renderCli, type CliOptions, type CliResult, type ProviderEntry, type QueryResult } from "./render.ts";
-import type { SearchOptions, SearchResponse } from "./types.ts";
+import type { ProviderName, SearchOptions, SearchResponse } from "./types.ts";
 import skillDoc from "./skill.md" with { type: "text" };
 
 const USAGE = `usage: websearch [query] [options]
 
-Searches the web via the keyless Exa, Parallel, Tavily, and Firecrawl MCP servers (all four, in parallel).
+Searches the web via the keyless MCP servers. Providers can be configured in config.toml
+(current directory or ~/.config/websearch/config.toml).
 
 Options:
   -q, --query <q>                      search query; repeat to run several queries in sequence
@@ -165,20 +167,42 @@ function buildOptions(parsed: Parsed): SearchOptions {
 }
 
 async function searchOne(query: string, options: SearchOptions): Promise<CliResult> {
-	const [exaRes, parallelRes, tavilyRes, firecrawlRes] = await Promise.allSettled([
-		searchWithExa(query, options),
-		searchWithParallel(query, options),
-		searchWithTavily(query, options),
-		searchWithFirecrawl(query, options),
-	]);
+	const config = loadConfig();
+	const results: Promise<SearchResponse | null>[] = [];
+	const providerNames: string[] = [];
 
+	if (config.providers.exa.enabled) {
+		results.push(searchWithExa(query, { ...options, timeoutMs: config.providers.exa.timeout }));
+		providerNames.push("exa");
+	}
+	if (config.providers.parallel.enabled) {
+		results.push(searchWithParallel(query, { ...options, timeoutMs: config.providers.parallel.timeout }));
+		providerNames.push("parallel");
+	}
+	if (config.providers.tavily.enabled) {
+		results.push(searchWithTavily(query, { ...options, timeoutMs: config.providers.tavily.timeout }));
+		providerNames.push("tavily");
+	}
+	if (config.providers.firecrawl.enabled) {
+		results.push(searchWithFirecrawl(query, { ...options, timeoutMs: config.providers.firecrawl.timeout }));
+		providerNames.push("firecrawl");
+	}
+
+	const settledResults = await Promise.allSettled(results);
 	const unwrap = (outcome: PromiseSettledResult<SearchResponse | null>, label: string): ProviderEntry => {
 		if (outcome.status === "rejected") return { response: null, error: messageOf(outcome.reason) };
 		if (!outcome.value) return { response: null, error: `${label} returned no results` };
 		return { response: outcome.value, error: null };
 	};
 
-	return { exa: unwrap(exaRes, "Exa"), parallel: unwrap(parallelRes, "Parallel"), tavily: unwrap(tavilyRes, "Tavily"), firecrawl: unwrap(firecrawlRes, "Firecrawl") };
+	const cliResult: CliResult = {};
+	for (let i = 0; i < providerNames.length; i++) {
+		// SAFETY: providerNames contains only valid ProviderName values from config
+		// SAFETY: providerNames only contains valid ProviderName values from config
+		const name = providerNames[i] as ProviderName;
+		cliResult[name] = unwrap(settledResults[i], name);
+	}
+	return cliResult;
 }
 
 function messageOf(cause: unknown): string {
@@ -210,7 +234,7 @@ export async function main(argv: string[]): Promise<number> {
 	const output = renderCli(results, parsed.options);
 	if (output.trim()) process.stdout.write(output + "\n");
 	const allFailed = results.every(r =>
-		Object.values(r.providers).every(p => p.response === null)
+		Object.keys(r.providers).length === 0 || Object.values(r.providers).every(p => p.response === null)
 	);
 	return allFailed ? 1 : 0;
 }

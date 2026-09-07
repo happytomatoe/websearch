@@ -2,7 +2,6 @@ import type { SearchOptions, SearchResponse, SearchResult } from "./types.ts";
 
 const FIRECRAWL_MCP_URL = "https://mcp.firecrawl.dev/v2/mcp";
 const FIRECRAWL_TOOL = "firecrawl_search";
-const SEARCH_TIMEOUT_MS = 10_000;
 
 interface FirecrawlMcpRpcResponse {
 	result?: {
@@ -30,8 +29,8 @@ interface FirecrawlResult {
 	position?: number;
 }
 
-function requestSignal(signal?: AbortSignal): AbortSignal {
-	const timeout = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
+function requestSignal(signal?: AbortSignal, timeoutMs?: number): AbortSignal {
+	const timeout = AbortSignal.timeout(timeoutMs ?? 10_000);
 	return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
@@ -84,7 +83,7 @@ function assertSearchEnvelope(payload: FirecrawlSearchEnvelope): FirecrawlSearch
 	return payload;
 }
 
-async function callFirecrawlMcp(args: FirecrawlSearchArgs, signal?: AbortSignal): Promise<FirecrawlSearchEnvelope> {
+async function callFirecrawlMcp(args: FirecrawlSearchArgs, signal?: AbortSignal, timeoutMs?: number): Promise<FirecrawlSearchEnvelope> {
 	const response = await fetch(FIRECRAWL_MCP_URL, {
 		method: "POST",
 		headers: {
@@ -97,7 +96,7 @@ async function callFirecrawlMcp(args: FirecrawlSearchArgs, signal?: AbortSignal)
 			method: "tools/call",
 			params: { name: FIRECRAWL_TOOL, arguments: args },
 		}),
-		signal: requestSignal(signal),
+		signal: requestSignal(signal, timeoutMs),
 	});
 
 	if (!response.ok) {
@@ -172,7 +171,7 @@ function buildAnswerFromDescriptions(results: FirecrawlResult[] | undefined): st
  * normalizes the payload to the shared SearchResponse shape.
  */
 export async function searchWithFirecrawl(query: string, options: SearchOptions = {}): Promise<SearchResponse> {
-	const envelope = await callFirecrawlMcp(firecrawlSearchArgs(query, options), options.signal);
+	const envelope = await callFirecrawlMcp(firecrawlSearchArgs(query, options), options.signal, options.timeoutMs);
 
 	const webResults = envelope.data?.web;
 	const results = mapResults(webResults);

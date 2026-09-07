@@ -13,15 +13,24 @@ export interface ProviderEntry {
 	error: string | null;
 }
 
-export type CliResult = Record<ProviderName, ProviderEntry>;
+export type CliResult = Partial<Record<ProviderName, ProviderEntry>>;
 
 export interface QueryResult {
 	query: string;
 	providers: CliResult;
 }
 
-const PROVIDER_LABELS = { exa: "Exa", parallel: "Parallel", tavily: "Tavily", firecrawl: "Firecrawl" } satisfies Record<ProviderName, string>;
-const PROVIDER_ORDER: ProviderName[] = ["exa", "parallel", "tavily", "firecrawl"];
+const PROVIDER_LABELS = {
+	exa: "Exa",
+	parallel: "Parallel",
+	tavily: "Tavily",
+	firecrawl: "Firecrawl",
+} satisfies Record<ProviderName, string>;
+
+function getEnabledProviders(providers: CliResult): ProviderName[] {
+	// SAFETY: Object.keys of Partial<Record<ProviderName, T>> yields valid ProviderName keys
+	return (Object.keys(providers) as ProviderName[]).filter(k => providers[k] !== undefined);
+}
 
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g; // eslint-disable-line no-control-regex -- intentional: strip remote provider control characters from terminal output
 
@@ -37,10 +46,12 @@ function formatSourceList(results: SearchResult[]): string {
 function renderQuerySections(providers: CliResult, seenUrls: Set<string>, merged: SearchResult[]): string[] {
 	const sections: string[] = [];
 	const failures: string[] = [];
+	const order = getEnabledProviders(providers);
 
-	for (const provider of PROVIDER_ORDER) {
-		const entry = providers[provider];
-		if (entry.response) {
+	for (const provider of order) {
+		// SAFETY: provider comes from getEnabledProviders which filters keys from the CliResult object
+		const entry = providers[provider as ProviderName];
+		if (entry?.response) {
 			sections.push(`## ${PROVIDER_LABELS[provider]}\n\n${sanitizeText((entry.response.answer || "(No answer text returned.)").trimEnd())}`);
 			for (const result of entry.response.results) {
 				if (seenUrls.has(result.url)) continue;
@@ -48,7 +59,7 @@ function renderQuerySections(providers: CliResult, seenUrls: Set<string>, merged
 				merged.push(result);
 			}
 		}
-		if (entry.error) failures.push(`- **${PROVIDER_LABELS[provider]}:** ${sanitizeText(entry.error)}`);
+		if (entry?.error) failures.push(`- **${PROVIDER_LABELS[provider]}:** ${sanitizeText(entry.error)}`);
 	}
 	if (failures.length) sections.push(`## Provider errors\n\n${failures.join("\n")}`);
 	return sections;
@@ -77,10 +88,22 @@ export function renderCli(results: QueryResult[], options: CliOptions): string {
 	if (options.json) {
 		if (results.length === 1) {
 			const [{ providers }] = results;
-			return JSON.stringify({ exa: providers.exa, parallel: providers.parallel, tavily: providers.tavily, firecrawl: providers.firecrawl }, null, 2);
+			const result: Record<string, ProviderEntry | null> = {};
+			for (const provider of Object.keys(providers)) {
+				// SAFETY: provider comes from Object.keys of Partial<Record<ProviderName, T>>
+				result[provider as ProviderName] = providers[provider as ProviderName] ?? null;
+			}
+		return JSON.stringify(result, null, 2);
 		}
 		return JSON.stringify(
-			results.map(({ query, providers }) => ({ query, exa: providers.exa, parallel: providers.parallel, tavily: providers.tavily, firecrawl: providers.firecrawl })),
+			results.map(({ query, providers }) => {
+				const result: Record<string, ProviderEntry | null> = {};
+				for (const provider of Object.keys(providers)) {
+					// SAFETY: provider comes from Object.keys of Partial<Record<ProviderName, T>>
+					result[provider as ProviderName] = providers[provider as ProviderName] ?? null;
+				}
+				return { query, ...result };
+			}),
 			null,
 			2,
 		);

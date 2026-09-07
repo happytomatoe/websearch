@@ -3,7 +3,6 @@ import type { ExtractedContent, SearchOptions, SearchResponse, SearchResult } fr
 
 const TAVILY_MCP_URL = "https://mcp.tavily.com/mcp/";
 const TAVILY_TOOL = "tavily_search";
-const SEARCH_TIMEOUT_MS = 10_000;
 
 interface TavilyMcpRpcResponse {
 	result?: {
@@ -26,8 +25,8 @@ interface TavilyResult {
 	raw_content: string | null;
 }
 
-function requestSignal(signal?: AbortSignal): AbortSignal {
-	const timeout = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
+function requestSignal(signal?: AbortSignal, timeoutMs?: number): AbortSignal {
+	const timeout = AbortSignal.timeout(timeoutMs ?? 10_000);
 	return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
@@ -93,7 +92,7 @@ function assertSearchPayload(payload: TavilySearchPayload & { code?: string; mes
 	return payload;
 }
 
-async function callTavilyMcp(args: TavilySearchArgs, signal?: AbortSignal): Promise<TavilySearchPayload> {
+async function callTavilyMcp(args: TavilySearchArgs, signal?: AbortSignal, timeoutMs?: number): Promise<TavilySearchPayload> {
 	const response = await fetch(TAVILY_MCP_URL, {
 		method: "POST",
 		headers: {
@@ -110,7 +109,7 @@ async function callTavilyMcp(args: TavilySearchArgs, signal?: AbortSignal): Prom
 				arguments: args,
 			},
 		}),
-		signal: requestSignal(signal),
+		signal: requestSignal(signal, timeoutMs),
 	});
 
 	if (!response.ok) {
@@ -202,7 +201,7 @@ function mapInlineContent(results: TavilyResult[] | undefined): ExtractedContent
  * header and normalizes the payload to the shared SearchResponse shape.
  */
 export async function searchWithTavily(query: string, options: SearchOptions = {}): Promise<SearchResponse> {
-	const payload = await callTavilyMcp(tavilySearchArgs(query, options), options.signal);
+	const payload = await callTavilyMcp(tavilySearchArgs(query, options), options.signal, options.timeoutMs);
 
 	const results = mapResults(payload.results);
 	const response: SearchResponse = {

@@ -2,7 +2,6 @@ import { isObject } from "./guards.ts";
 import type { ExtractedContent, SearchOptions, SearchResponse, SearchResult } from "./types.ts";
 
 const PARALLEL_MCP_URL = "https://search.parallel.ai/mcp";
-const SEARCH_TIMEOUT_MS = 10_000;
 
 function isValidHttpUrl(value: string): boolean {
 	try {
@@ -28,8 +27,8 @@ interface McpResult {
 	excerpts: string[];
 }
 
-function requestSignal(signal?: AbortSignal): AbortSignal {
-	const timeout = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
+function requestSignal(signal?: AbortSignal, timeoutMs?: number): AbortSignal {
+	const timeout = AbortSignal.timeout(timeoutMs ?? 10_000);
 	return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
@@ -89,7 +88,7 @@ interface ParallelMcpArgs {
 	search_queries: string[];
 }
 
-async function callParallelMcp(args: ParallelMcpArgs, signal?: AbortSignal): Promise<string> {
+async function callParallelMcp(args: ParallelMcpArgs, signal?: AbortSignal, timeoutMs?: number): Promise<string> {
 	const body = {
 		jsonrpc: "2.0",
 		id: 1,
@@ -107,7 +106,7 @@ async function callParallelMcp(args: ParallelMcpArgs, signal?: AbortSignal): Pro
 			"Accept": "application/json",
 		},
 		body: JSON.stringify(body),
-		signal: requestSignal(signal),
+		signal: requestSignal(signal, timeoutMs),
 	});
 
 	if (!response.ok) {
@@ -214,7 +213,7 @@ function buildMcpQuery(query: string, options: SearchOptions): string {
 
 export async function searchWithParallel(query: string, options: SearchOptions = {}): Promise<SearchResponse> {
 	const effectiveQuery = buildMcpQuery(query, options);
-	const text = await callParallelMcp({ objective: effectiveQuery, search_queries: [effectiveQuery] }, options.signal);
+	const text = await callParallelMcp({ objective: effectiveQuery, search_queries: [effectiveQuery] }, options.signal, options.timeoutMs);
 
 	const results = parseMcpResults(text).slice(0, options.numResults ?? 5);
 

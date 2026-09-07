@@ -3,7 +3,6 @@ import type { ExtractedContent, RecencyFilter, SearchOptions, SearchResponse, Se
 const EXA_MCP_URL = "https://mcp.exa.ai/mcp";
 const EXA_MCP_ADVANCED_TOOL = "web_search_advanced_exa";
 const EXA_MCP_BASIC_TOOL = "web_search_exa";
-const SEARCH_TIMEOUT_MS = 10_000;
 
 interface ExaMcpRpcResponse {
 	result?: {
@@ -26,8 +25,8 @@ export interface ExaSearchOptions extends SearchOptions {
 
 type McpParsedResult = { title: string; url: string; content: string };
 
-function requestSignal(signal?: AbortSignal): AbortSignal {
-	const timeout = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
+function requestSignal(signal?: AbortSignal, timeoutMs?: number): AbortSignal {
+	const timeout = AbortSignal.timeout(timeoutMs ?? 10_000);
 	return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
@@ -153,6 +152,7 @@ async function callExaMcp(
 	toolName: string,
 	args: ExaSearchArgs,
 	signal?: AbortSignal,
+	timeoutMs?: number,
 ): Promise<string> {
 	const response = await fetch(`${EXA_MCP_URL}?tools=${toolName}`, {
 		method: "POST",
@@ -170,7 +170,7 @@ async function callExaMcp(
 				arguments: args,
 			},
 		}),
-		signal: requestSignal(signal),
+		signal: requestSignal(signal, timeoutMs),
 	});
 
 	if (!response.ok) {
@@ -309,7 +309,7 @@ async function searchWithExaMcpTool(
 	args: ExaSearchArgs,
 	options: ExaSearchOptions,
 ): Promise<SearchResponse | null> {
-	const text = await callExaMcp(tool, args, options.signal);
+	const text = await callExaMcp(tool, args, options.signal, options.timeoutMs);
 
 	const jsonResults = parseJsonMcpResults(text);
 	if (jsonResults !== null) {
