@@ -4,6 +4,15 @@ import type { ExtractedContent, SearchOptions, SearchResponse, SearchResult } fr
 const PARALLEL_MCP_URL = "https://search.parallel.ai/mcp";
 const SEARCH_TIMEOUT_MS = 10_000;
 
+function isValidHttpUrl(value: string): boolean {
+	try {
+		const parsed = new URL(value);
+		return parsed.protocol === "http:" || parsed.protocol === "https:";
+	} catch {
+		return false;
+	}
+}
+
 interface ParallelMcpRpcResponse {
 	result?: {
 		content?: Array<{ type?: string; text?: string }>;
@@ -33,7 +42,7 @@ function mapSearchResults(results: McpResult[] | undefined): SearchResult[] {
 	if (!Array.isArray(results)) return [];
 	const mapped: SearchResult[] = [];
 	for (const item of results) {
-		if (!item?.url) continue;
+		if (!item?.url || !isValidHttpUrl(item.url)) continue;
 		const excerpts = normalizeExcerpts(item.excerpts);
 		mapped.push({
 			title: item.title || `Source ${mapped.length + 1}`,
@@ -181,7 +190,7 @@ function parseMcpResults(text: string): McpResult[] {
 			}
 			return { url, title, excerpts };
 		})
-		.filter(r => r.url.length > 0);
+		.filter(r => r.url.length > 0 && isValidHttpUrl(r.url));
 }
 
 function buildMcpQuery(query: string, options: SearchOptions): string {

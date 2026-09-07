@@ -72,6 +72,25 @@ test("sends tools/call web_search with objective and search_queries, maps result
 	expect(res.answer).toContain("https://docs.parallel.ai/search");
 });
 
+test("filters non-http(s) and malformed result URLs", async () => {
+	mockFetchOnce(() => ok({
+		result: {
+			structuredContent: {
+				results: [
+					{ url: "https://ok.example.com", title: "Ok", excerpts: ["fine"] },
+					{ url: "javascript:alert(1)", title: "Bad", excerpts: ["x"] },
+					{ url: "file:///etc/passwd", title: "Bad", excerpts: ["x"] },
+					{ url: "not a url", title: "Bad", excerpts: ["x"] },
+				],
+			},
+		},
+	}));
+
+	const res = await searchWithParallel("q");
+	expect(res.results).toHaveLength(1);
+	expect(res.results[0]).toEqual({ title: "Ok", url: "https://ok.example.com", snippet: "fine" });
+});
+
 test("parses text-block response when structuredContent is absent", async () => {
 	mockFetchOnce(() => ok({
 		result: {
