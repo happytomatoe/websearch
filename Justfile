@@ -12,6 +12,28 @@ install: build
     cp "{{justfile_directory()}}/dist/websearch" ~/.local/bin/websearch
     chmod +x ~/.local/bin/websearch
     echo "Installed websearch → ~/.local/bin/websearch"
+    # Create default config.toml if it doesn't exist
+    mkdir -p ~/.config/websearch
+    if [ ! -f ~/.config/websearch/config.toml ]; then
+        cat > ~/.config/websearch/config.toml << 'CONFIGEOF'
+[providers.exa]
+enabled = true
+timeout = 10000
+
+[providers.parallel]
+enabled = true
+timeout = 10000
+
+[providers.tavily]
+enabled = false
+timeout = 10000
+
+[providers.firecrawl]
+enabled = true
+timeout = 10000
+CONFIGEOF
+        echo "Installed default config → ~/.config/websearch/config.toml"
+    fi
 
 # Symlink the agent skill into ~/.agent/skills/websearch/SKILL.md
 skill:
