@@ -1,0 +1,27 @@
+pre-push:
+  parallel: true
+  commands:
+    test:
+      run: bun test
+    typecheck:
+      run: bun run typecheck
+    lint:
+      run: bun run lint
+    unused:
+      run: bun run unused
+    dupcheck:
+      run: bun run dupcheck
+
+ci:
+  parallel: true
+  commands:
+    test:
+      run: bun test
+    typecheck:
+      run: bun run typecheck
+    lint:
+      run: bun run lint
+    unused:
+      run: bun run unused
+    dupcheck:
+      run: bun run dupcheck
