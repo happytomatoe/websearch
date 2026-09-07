@@ -15,8 +15,8 @@ install: build
 
 # Symlink the agent skill into ~/.agent/skills/websearch/SKILL.md
 skill:
-    mkdir -p ~/.agent/skills/websearch
-    ln -sf "{{justfile_directory()}}/src/skill.md" ~/.agent/skills/websearch/SKILL.md
+    mkdir -p ~/.agents/skills/websearch
+    ln -sf "{{justfile_directory()}}/src/skill.md" ~/.agents/skills/websearch/SKILL.md
     echo "Installed skill → ~/.agent/skills/websearch/SKILL.md"
 
 # Live smoke test against all four providers
